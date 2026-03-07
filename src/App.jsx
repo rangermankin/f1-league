@@ -1092,9 +1092,10 @@ export default function App(){
 
       {/* Header */}
       <div style={{borderBottom:"1px solid "+BORDER,padding:headerPad,display:"flex",alignItems:"center",justifyContent:"space-between",background:"#050505",position:"sticky",top:0,zIndex:50}}>
-        <div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <img src="/f1brain_icon_transparent.svg" alt="F1brain" style={{height:isMobile?20:24,width:"auto",opacity:0.9}}/>
           <span style={{fontFamily:MONO,fontSize:isMobile?12:13,fontWeight:700,color:ACCENT,letterSpacing:"0.12em"}}>F1 PREDICT</span>
-          <span style={{fontFamily:MONO,fontSize:10,color:MUTED,marginLeft:10,letterSpacing:"0.08em"}}>2026</span>
+          <span style={{fontFamily:MONO,fontSize:10,color:MUTED,letterSpacing:"0.08em"}}>2026</span>
         </div>
         <div style={{display:"flex",gap:isMobile?8:16,alignItems:"center"}}>
           {saved&&<span style={{fontFamily:MONO,fontSize:10,color:"#4a8a4a"}}>SAVED</span>}
