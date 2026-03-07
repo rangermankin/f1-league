@@ -36,22 +36,50 @@ const DEFAULT_TEAMS = [
 const DEFAULT_DRIVERS = [
   {name:"Max Verstappen",team:"Red Bull"},{name:"Isack Hadjar",team:"Red Bull"},
   {name:"Charles Leclerc",team:"Ferrari"},{name:"Lewis Hamilton",team:"Ferrari"},
-  {name:"George Russell",team:"Mercedes"},{name:"Kimi Antonelli",team:"Mercedes"},
+  {name:"Kimi Antonelli",team:"Mercedes"},{name:"George Russell",team:"Mercedes"},
   {name:"Lando Norris",team:"McLaren"},{name:"Oscar Piastri",team:"McLaren"},
   {name:"Fernando Alonso",team:"Aston Martin"},{name:"Lance Stroll",team:"Aston Martin"},
   {name:"Pierre Gasly",team:"Alpine"},{name:"Franco Colapinto",team:"Alpine"},
-  {name:"Alex Albon",team:"Williams"},{name:"Carlos Sainz",team:"Williams"},
+  {name:"Alexander Albon",team:"Williams"},{name:"Carlos Sainz Jr.",team:"Williams"},
   {name:"Liam Lawson",team:"Racing Bulls"},{name:"Arvid Lindblad",team:"Racing Bulls"},
-  {name:"Oliver Bearman",team:"Haas"},{name:"Esteban Ocon",team:"Haas"},
-  {name:"Nico Hulkenberg",team:"Audi"},{name:"Gabriel Bortoleto",team:"Audi"},
-  {name:"Valtteri Bottas",team:"Cadillac"},{name:"Sergio Perez",team:"Cadillac"},
+  {name:"Esteban Ocon",team:"Haas"},{name:"Oliver Bearman",team:"Haas"},
+  {name:"Gabriel Bortoleto",team:"Audi"},{name:"Nico Hulkenberg",team:"Audi"},
+  {name:"Sergio Perez",team:"Cadillac"},{name:"Valtteri Bottas",team:"Cadillac"},
+];
+
+// Full 2026 race calendar
+const RACE_CALENDAR = [
+  {r:1,  name:"Australian GP",        circuit:"Albert Park Circuit, Melbourne",                date:"8 Mar"},
+  {r:2,  name:"Chinese GP",           circuit:"Shanghai International Circuit",                date:"15 Mar"},
+  {r:3,  name:"Japanese GP",          circuit:"Suzuka Circuit",                                date:"29 Mar"},
+  {r:4,  name:"Bahrain GP",           circuit:"Bahrain International Circuit, Sakhir",         date:"12 Apr"},
+  {r:5,  name:"Saudi Arabian GP",     circuit:"Jeddah Corniche Circuit",                       date:"19 Apr"},
+  {r:6,  name:"Miami GP",             circuit:"Miami International Autodrome",                 date:"3 May"},
+  {r:7,  name:"Canadian GP",          circuit:"Circuit Gilles Villeneuve, Montreal",           date:"24 May"},
+  {r:8,  name:"Monaco GP",            circuit:"Circuit de Monaco",                             date:"7 Jun"},
+  {r:9,  name:"Barcelona-Catalunya GP",circuit:"Circuit de Barcelona-Catalunya",               date:"14 Jun"},
+  {r:10, name:"Austrian GP",          circuit:"Red Bull Ring, Spielberg",                      date:"28 Jun"},
+  {r:11, name:"British GP",           circuit:"Silverstone Circuit",                           date:"5 Jul"},
+  {r:12, name:"Belgian GP",           circuit:"Circuit de Spa-Francorchamps",                  date:"19 Jul"},
+  {r:13, name:"Hungarian GP",         circuit:"Hungaroring, Mogyorod",                         date:"26 Jul"},
+  {r:14, name:"Dutch GP",             circuit:"Circuit Zandvoort",                             date:"23 Aug"},
+  {r:15, name:"Italian GP",           circuit:"Monza Circuit",                                 date:"6 Sep"},
+  {r:16, name:"Spanish GP",           circuit:"Madring, Madrid",                               date:"13 Sep"},
+  {r:17, name:"Azerbaijan GP",        circuit:"Baku City Circuit",                             date:"26 Sep"},
+  {r:18, name:"Singapore GP",         circuit:"Marina Bay Street Circuit",                     date:"11 Oct"},
+  {r:19, name:"United States GP",     circuit:"Circuit of the Americas, Austin TX",            date:"25 Oct"},
+  {r:20, name:"Mexico City GP",       circuit:"Autodromo Hermanos Rodriguez",                  date:"1 Nov"},
+  {r:21, name:"Sao Paulo GP",         circuit:"Interlagos Circuit",                            date:"8 Nov"},
+  {r:22, name:"Las Vegas GP",         circuit:"Las Vegas Strip Circuit",                       date:"21 Nov"},
+  {r:23, name:"Qatar GP",             circuit:"Lusail International Circuit",                  date:"29 Nov"},
+  {r:24, name:"Abu Dhabi GP",         circuit:"Yas Marina Circuit",                            date:"6 Dec"},
 ];
 
 const QUARTERS = ["Q1","Q2","Q3","Q4"];
 const Q_RACES  = {Q1:"Races 1-7",Q2:"Races 8-13",Q3:"Races 14-19",Q4:"Races 20-24"};
-const Q_DATES  = {Q1:"Mar 16 - Jun 14",Q2:"Jun 28 - Jul 26",Q3:"Aug 30 - Oct 25",Q4:"Nov 1 - Nov 29"};
-const Q_WHEN   = {Q1:"Lock before Race 1 (Mar 16)",Q2:"Lock after Q1, before Q2 (Jun 28)",Q3:"Lock after Q2, before Q3 (Aug 30)",Q4:"Lock after Q3, before Q4 (Nov 1)"};
-const SEASON_DATES = "Mar 16 – Nov 29, 2026";
+const Q_DATES  = {Q1:"Mar 8 - May 24",Q2:"Jun 7 - Jul 26",Q3:"Aug 23 - Oct 25",Q4:"Nov 1 - Dec 6"};
+const Q_WHEN   = {Q1:"Lock before Race 1 - Australian GP (Mar 8)",Q2:"Lock after Q1, before Race 8 - Monaco GP (Jun 7)",Q3:"Lock after Q2, before Race 14 - Dutch GP (Aug 23)",Q4:"Lock after Q3, before Race 20 - Mexico City GP (Nov 1)"};
+const SEASON_DATES = "Mar 8 – Dec 6, 2026";
 
 const BG="#080808",CARD="#101010",BORDER="#1e1e1e",BORDER2="#2a2a2a";
 const TEXT="#e8e8e8",MUTED="#666",DIM="#444",ACCENT="#e10600";
@@ -326,7 +354,7 @@ function PredForm({data,onChange,teams,drivers,preSeasonLocked}){
   return(
     <div style={{color:TEXT,paddingBottom:40}}>
       <div style={{padding:"8px 12px",background:"#0a0a14",border:"1px solid #1e1e3a",borderRadius:6,marginBottom:4,fontSize:11,color:"#8888cc",fontFamily:MONO,display:"flex",justifyContent:"space-between"}}>
-        <span>PRE-SEASON — Lock before Race 1 (Mar 16, 2026)</span>
+        <span>PRE-SEASON — Lock before Race 1 - Australian GP (Mar 8, 2026)</span>
         {preSeasonLocked&&<span style={{color:"#e8a060"}}>LOCKED</span>}
       </div>
       <Sec title="Constructors Championship" sub="Final ranking at end of 2026 season" pts="MAX 220 PTS"/>
@@ -748,8 +776,12 @@ function Rules(){
     <div style={{maxWidth:720,color:TEXT}}>
       <div style={{...block,background:"#0a0a14",border:"1px solid #1e1e3a"}}>
         <div style={{fontSize:14,fontWeight:700,color:ACCENT,fontFamily:MONO,marginBottom:6}}>F1 2026 PREDICTION LEAGUE</div>
-        <div style={{fontSize:12,color:"#8888cc",lineHeight:1.7}}>
-          Four players compete by predicting the 2026 Formula 1 season. Points are awarded based on accuracy across pre-season rankings, quarterly standings, and bonus categories. The higher your score at season end, the better.
+        <div style={{fontSize:12,color:"#8888cc",lineHeight:1.8}}>
+          <p style={{marginTop:0}}>Four players go head to head predicting the 2026 Formula 1 season across three scoring phases.</p>
+          <p><span style={{color:TEXT,fontWeight:600}}>Pre-season</span> is your biggest swing — lock in your full constructors and drivers championship rankings before Race 1 and earn up to 440 points based on how close you land. The further off you are, the fewer points you get, so confident picks pay off.</p>
+          <p><span style={{color:TEXT,fontWeight:600}}>Quarterly standings</span> run across four race blocks throughout the season. Before each block you predict where every constructor and driver sits in the championship at that point. With 88 points available per quarter across 24 races, this is where the standings shift race by race.</p>
+          <p><span style={{color:TEXT,fontWeight:600}}>Bonus categories</span> reward getting the details right — championship clinch dates, head-to-head battles within each team, which drivers leave F1, the top win leaders, and which team improves the most. Worth up to 225 points combined.</p>
+          <p style={{marginBottom:0}}>All predictions lock before they score and cannot be changed once locked. Scores only appear after the admin confirms results. The player with the most points at the end of Abu Dhabi wins.</p>
         </div>
       </div>
 
@@ -758,8 +790,8 @@ function Rules(){
         <div style={{fontSize:12,color:MUTED,lineHeight:1.0}}>
           {[
             ["1. Set up player names","Go to Setup and enter names for all four players. This only needs to be done once."],
-            ["2. Enter pre-season predictions","Each player fills out their own predictions in the Predictions tab before Race 1 (Mar 16). This includes the full constructors and drivers championship rankings, all bonus categories, and Q1 quarterly standings."],
-            ["3. Lock pre-season predictions","Before Race 1 starts, each player locks their pre-season predictions using the LOCK PRE-SEASON button. Locked predictions cannot be changed."],
+            ["2. Enter pre-season predictions","Each player fills out their own predictions in the Predictions tab before Race 1 - Australian GP (Mar 8). This includes the full constructors and drivers championship rankings, all bonus categories, and Q1 quarterly standings."],
+            ["3. Lock pre-season predictions","Before Race 1 - Australian GP starts, each player locks their pre-season predictions using the LOCK PRE-SEASON button. Locked predictions cannot be changed."],
             ["4. Submit quarterly predictions","After each quarter ends, players have a window to submit their next quarterly standings prediction before the next quarter begins. Lock each quarter independently using the LOCK Q1/Q2/Q3/Q4 buttons."],
             ["5. Admin confirms results","After each scored event (quarter end, bonus category outcome), the admin enters results in the Results tab and clicks CONFIRM RESULTS. Scores only appear after confirmation."],
             ["6. Check the leaderboard","Visit the Leaderboard tab at any time to see current standings. Expand the Prediction Breakdown section to see a category-by-category analysis for any player."],
@@ -775,12 +807,12 @@ function Rules(){
       <div style={block}>
         <div style={h}>Key Dates</div>
         {[
-          ["Season start","Mar 16, 2026 — Australian GP"],
-          ["Pre-season lock","Before Mar 16 — all pre-season predictions and Q1 quarterly must be locked"],
-          ["Q1 ends / Q2 lock window","After Jun 14 (Race 7), before Jun 28 (Race 8)"],
-          ["Q2 ends / Q3 lock window","After Jul 26 (Race 13), before Aug 30 (Race 14)"],
-          ["Q3 ends / Q4 lock window","After Oct 25 (Race 19), before Nov 1 (Race 20)"],
-          ["Season end","Nov 29, 2026 — Abu Dhabi GP"],
+          ["Season start","Mar 8, 2026 — Australian GP, Albert Park"],
+          ["Pre-season lock","Before Mar 8 — all pre-season predictions and Q1 quarterly must be locked"],
+          ["Q1 ends / Q2 lock window","After May 24 (Race 7 - Canadian GP), before Jun 7 (Race 8 - Monaco GP)"],
+          ["Q2 ends / Q3 lock window","After Jul 26 (Race 13 - Hungarian GP), before Aug 23 (Race 14 - Dutch GP)"],
+          ["Q3 ends / Q4 lock window","After Oct 25 (Race 19 - United States GP), before Nov 1 (Race 20 - Mexico City GP)"],
+          ["Season end","Dec 6, 2026 — Abu Dhabi GP, Yas Marina"],
         ].map(([k,v])=>(
           <div key={k} style={row}>
             <span style={{color:MUTED,fontFamily:MONO,fontSize:11}}>{k}</span>
@@ -791,13 +823,30 @@ function Rules(){
 
       <div style={block}>
         <div style={h}>Quarter Boundaries</div>
-        {[["Q1",Q_RACES.Q1,Q_DATES.Q1],["Q2",Q_RACES.Q2,Q_DATES.Q2],["Q3",Q_RACES.Q3,Q_DATES.Q3],["Q4",Q_RACES.Q4,Q_DATES.Q4]].map(([q,races,dates])=>(
-          <div key={q} style={{...row,gap:8}}>
+        {[["Q1","Races 1-7","Mar 8 - May 24","Australia → Canada"],["Q2","Races 8-13","Jun 7 - Jul 26","Monaco → Hungary"],["Q3","Races 14-19","Aug 23 - Oct 25","Dutch → United States"],["Q4","Races 20-24","Nov 1 - Dec 6","Mexico City → Abu Dhabi"]].map(([q,races,dates,gps])=>(
+          <div key={q} style={{...row,gap:8,alignItems:"center"}}>
             <span style={{color:ACCENT,fontFamily:MONO,fontSize:11,minWidth:24}}>{q}</span>
-            <span style={{color:TEXT,flex:1}}>{races}</span>
+            <span style={{color:MUTED,fontSize:11,minWidth:70}}>{races}</span>
+            <span style={{color:TEXT,flex:1}}>{gps}</span>
             <span style={{color:MUTED,fontSize:11,textAlign:"right"}}>{dates}</span>
           </div>
         ))}
+      </div>
+
+      <div style={block}>
+        <div style={h}>2026 Race Calendar</div>
+        {RACE_CALENDAR.map((race,i)=>{
+          const q=race.r<=7?"Q1":race.r<=13?"Q2":race.r<=19?"Q3":"Q4";
+          const qColor={Q1:"#3a5a3a",Q2:"#3a3a6a",Q3:"#6a4a1a",Q4:"#6a1a1a"};
+          return(
+            <div key={race.r} style={{display:"grid",gridTemplateColumns:"28px 1fr 80px 28px",gap:8,padding:"5px 0",borderBottom:i<RACE_CALENDAR.length-1?"1px solid "+BORDER:"none",alignItems:"center",fontSize:11}}>
+              <span style={{color:DIM,fontFamily:MONO,textAlign:"right"}}>{race.r}</span>
+              <span style={{color:TEXT}}>{race.name}</span>
+              <span style={{color:MUTED,textAlign:"right"}}>{race.date}</span>
+              <span style={{background:qColor[q],color:TEXT,fontSize:9,fontFamily:MONO,padding:"1px 4px",borderRadius:2,textAlign:"center"}}>{q}</span>
+            </div>
+          );
+        })}
       </div>
 
       <div style={block}>
@@ -868,7 +917,7 @@ function Rules(){
         <div style={h}>General Rules</div>
         <div style={{fontSize:11,color:MUTED,lineHeight:1.0}}>
           {[
-            ["Locks","Pre-season predictions (including Q1 quarterly) must be locked before Race 1. Each subsequent quarter locks independently between quarters. Once locked, predictions cannot be changed."],
+            ["Locks","Pre-season predictions (including Q1 quarterly) must be locked before Race 1 - Australian GP (Mar 8). Each subsequent quarter locks independently between quarters. Once locked, predictions cannot be changed."],
             ["Results","The admin confirms results in the Results tab. Scores only appear after confirmation. Results can be unconfirmed and corrected if needed before the season ends."],
             ["Mid-season driver changes","If a driver is replaced mid-season, the replacement inherits that seat slot for scoring purposes. Head-to-head picks apply to whoever races in that seat across the full season."],
             ["Tiebreaker","If total scores are equal at season end, the winner is the player closest to the actual total number of safety car deployments across the 2026 season. This must be submitted pre-season."],
@@ -921,10 +970,10 @@ function Setup({config,onSave,onReset}){
       </div>
       <div style={{marginTop:24,padding:"12px 14px",background:CARD,border:"1px solid "+BORDER,borderRadius:6,fontSize:11,color:MUTED,lineHeight:1.9}}>
         <div style={{color:TEXT,fontWeight:600,marginBottom:6,fontFamily:MONO,fontSize:10}}>2026 CALENDAR</div>
-        <div>Q1: Races 1-7 — Mar 16 to Jun 14</div>
-        <div>Q2: Races 8-13 — Jun 28 to Jul 26</div>
-        <div>Q3: Races 14-19 — Aug 30 to Oct 25</div>
-        <div>Q4: Races 20-24 — Nov 1 to Nov 29</div>
+        <div>Q1: Races 1-7 — Mar 8 to May 24 (Australia → Canada)</div>
+        <div>Q2: Races 8-13 — Jun 7 to Jul 26 (Monaco → Hungary)</div>
+        <div>Q3: Races 14-19 — Aug 23 to Oct 25 (Dutch → United States)</div>
+        <div>Q4: Races 20-24 — Nov 1 to Dec 6 (Mexico City → Abu Dhabi)</div>
       </div>
     </div>
   );
