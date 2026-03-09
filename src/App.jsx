@@ -1,31 +1,5 @@
 import { useState, useEffect } from "react";
 
-const SUPABASE_URL = "https://knjvofhoamlvnmqtoiuq.supabase.co";
-const SUPABASE_KEY = "sb_publishable_QhKPtZS7VKyyVRLCflqEPg_ATs7igEY";
-
-const db = {
-  async get(key) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/app_data?key=eq.${encodeURIComponent(key)}&select=value`, {
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
-    });
-    const rows = await res.json();
-    return rows.length ? { value: JSON.stringify(rows[0].value) } : null;
-  },
-  async set(key, value) {
-    await fetch(`${SUPABASE_URL}/rest/v1/app_data`, {
-      method: "POST",
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
-      body: JSON.stringify({ key, value: JSON.parse(value), updated_at: new Date().toISOString() })
-    });
-  },
-  async delete(key) {
-    await fetch(`${SUPABASE_URL}/rest/v1/app_data?key=eq.${encodeURIComponent(key)}`, {
-      method: "DELETE",
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
-    });
-  }
-};
-
 const NUM_PLAYERS = 4;
 const DEFAULT_PLAYER_NAMES = ["Player 1","Player 2","Player 3","Player 4"];
 
@@ -133,22 +107,24 @@ function calcRanking(pred=[],actual=[],fn){
 function calcAllScores(preds,results){
   if(!preds||!results) return {total:0,cats:{}};
   const c={};
-  c.constructorsRanking=results.constructorsConfirmed?calcRanking(preds.constructorsRanking,results.constructorsRanking,scoreConRank):null;
-  c.driversRanking=results.driversConfirmed?calcRanking(preds.driversRanking,results.driversRanking,scoreDrvRank):null;
+  c.constructorsRanking=results.constructorsRanking?.length?calcRanking(preds.constructorsRanking,results.constructorsRanking,scoreConRank):null;
+  c.driversRanking=results.driversRanking?.length?calcRanking(preds.driversRanking,results.driversRanking,scoreDrvRank):null;
   c.quarterly={};
   QUARTERS.forEach(q=>{
-    const ql=results.quarterly?.[q]?.locked;
+    const qr=results.quarterly?.[q];
+    const hasData=qr?.hasData===true;
     c.quarterly[q]={
-      constructors:ql?calcRanking(preds.quarterly?.[q]?.constructors,results.quarterly?.[q]?.constructors||[],scoreQCon):null,
-      drivers:ql?calcRanking(preds.quarterly?.[q]?.drivers,results.quarterly?.[q]?.drivers||[],scoreQDrv):null,
+      constructors:hasData?calcRanking(preds.quarterly?.[q]?.constructors,qr?.constructors||[],scoreQCon):null,
+      drivers:hasData?calcRanking(preds.quarterly?.[q]?.drivers,qr?.drivers||[],scoreQDrv):null,
     };
   });
   c.constructorsClinch=results.constructorsClinchDate?scoreClinch(preds.constructorsClinchDate,results.constructorsClinchDate):null;
   c.driversClinch=results.driversClinchDate?scoreClinch(preds.driversClinchDate,results.driversClinchDate):null;
   c.departures=results.departuresConfirmed?scoreDeps(preds.departures,results.departures):null;
-  c.headToHead=results.h2hConfirmed?scoreH2H(preds.headToHead,results.headToHead):null;
+  const h2hAnySet=results.headToHead&&Object.values(results.headToHead).some(v=>v);
+  c.headToHead=h2hAnySet?scoreH2H(preds.headToHead,results.headToHead):null;
   c.topWins=results.winsConfirmed?scoreWins(preds.topWins,results.topWins):null;
-  c.biggestImprovement=results.improvementConfirmed?scoreImprove(preds.biggestImprovement,results.biggestImprovement):null;
+  c.biggestImprovement=results.biggestImprovement?scoreImprove(preds.biggestImprovement,results.biggestImprovement):null;
   const vals=[c.constructorsRanking,c.driversRanking,
     ...QUARTERS.flatMap(q=>[c.quarterly[q].constructors,c.quarterly[q].drivers]),
     c.constructorsClinch,c.driversClinch,c.departures,c.headToHead,c.topWins,c.biggestImprovement];
@@ -404,6 +380,241 @@ function PredForm({data,onChange,teams,drivers,preSeasonLocked,isMobile}){
   );
 }
 
+// ─── STANDINGS SYNC ───────────────────────────────────────────────────────────
+function matchDriver(fetched, canonical){
+  const exact=canonical.find(n=>n===fetched);
+  if(exact) return exact;
+  const fetchedLast=fetched.split(" ").slice(-1)[0].toLowerCase();
+  return canonical.find(n=>n.split(" ").slice(-1)[0].toLowerCase()===fetchedLast)||null;
+}
+function matchTeam(fetched, canonical){
+  const exact=canonical.find(t=>t===fetched);
+  if(exact) return exact;
+  const fl=fetched.toLowerCase();
+  return canonical.find(t=>fl.includes(t.toLowerCase())||t.toLowerCase().includes(fl))||null;
+}
+
+function StandingsSync({data,onChange,teams,drivers}){
+  const dn=drivers.map(d=>d.name);
+  const [status,setStatus]=useState("idle");
+  const [log,setLog]=useState("");
+  const [preview,setPreview]=useState(null); // summary of what will be applied
+
+  async function sync(){
+    setStatus("loading");setLog("");setPreview(null);
+    try{
+      const API="https://api.anthropic.com/v1/messages";
+      const model="claude-sonnet-4-20250514";
+      const tools=[{type:"web_search_20250305",name:"web_search"}];
+      const sysPrompt="You are a data extraction assistant. Return ONLY valid JSON with no markdown, no explanation, no backticks.";
+      const userMsg=`Fetch the F1 2026 standings page at https://www.the-race.com/results/formula-1/1-2026/
+
+The page shows driver and constructor standings with per-race point columns R1-R24.
+
+Return this JSON. Each entry is {name, pts} where pts is the relevant total. For quarters, sum only races in that range. Set a section to null if all pts are 0.
+
+Quarter ranges: Q1=R1-R7, Q2=R8-R13, Q3=R14-R19, Q4=R20-R24.
+
+Team H2H pairings (winner = higher total season pts, null if both 0):
+Red Bull: Max Verstappen vs Isack Hadjar | Ferrari: Charles Leclerc vs Lewis Hamilton
+Mercedes: Kimi Antonelli vs George Russell | McLaren: Lando Norris vs Oscar Piastri
+Aston Martin: Fernando Alonso vs Lance Stroll | Alpine: Pierre Gasly vs Franco Colapinto
+Williams: Alexander Albon vs Carlos Sainz Jr. | Racing Bulls: Liam Lawson vs Arvid Lindblad
+Haas: Esteban Ocon vs Oliver Bearman | Audi: Gabriel Bortoleto vs Nico Hulkenberg
+Cadillac: Sergio Perez vs Valtteri Bottas
+
+{
+  "final": {
+    "drivers": [{"name":"George Russell","pts":25}, ...all 22 by total pts desc],
+    "constructors": [{"name":"Mercedes","pts":43}, ...all 11 by total pts desc]
+  },
+  "Q1": {
+    "drivers": [{"name":"George Russell","pts":25}, ...by Q1 pts desc] or null,
+    "constructors": [{"name":"Mercedes","pts":43}, ...by Q1 pts desc] or null
+  },
+  "Q2": {"drivers": [...] or null, "constructors": [...] or null},
+  "Q3": {"drivers": [...] or null, "constructors": [...] or null},
+  "Q4": {"drivers": [...] or null, "constructors": [...] or null},
+  "headToHead": {"Red Bull": "winner name or null", "Ferrari": "...", "Mercedes": "...", "McLaren": "...", "Aston Martin": "...", "Alpine": "...", "Williams": "...", "Racing Bulls": "...", "Haas": "...", "Audi": "...", "Cadillac": "..."}
+}
+
+Use exact names from the page. Return only the JSON object.`;
+
+      let messages=[{role:"user",content:userMsg}];
+      let finalText="";
+
+      const resp=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model,max_tokens:2000,tools,system:sysPrompt,messages})});
+      const d=await resp.json();
+      if(d.error) throw new Error(d.error.message);
+      const content=d.content||[];
+      finalText=content.filter(b=>b.type==="text").map(b=>b.text).join("");
+
+      if(!finalText) throw new Error("No text response from API");
+      const jsonMatch=finalText.replace(/```json|```/g,"").match(/\{[\s\S]*\}/);
+      if(!jsonMatch) throw new Error("No JSON in response");
+      const parsed=JSON.parse(jsonMatch[0]);
+      if(!parsed.final) throw new Error("Missing final standings in response");
+
+      // Helper: extract ranked names and points map from [{name,pts}] array
+      function extractSection(arr, matchFn, canonical){
+        if(!arr||!arr.length) return null;
+        const entries=arr.map(e=>({
+          name:matchFn(typeof e==="string"?e:e.name, canonical),
+          pts:typeof e==="object"?e.pts:0
+        })).filter(x=>x.name);
+        if(entries.every(e=>e.pts===0)) return null;
+        const names=entries.map(e=>e.name);
+        const missing=canonical.filter(n=>!names.includes(n));
+        const ptsMap={};entries.forEach(e=>{ptsMap[e.name]=e.pts;});
+        return{ranked:[...names,...missing],ptsMap};
+      }
+
+      const newData={...data};
+
+      // Save current standings as prev before overwriting
+      if(data.standingsPts){
+        newData.prevStandingsPts=data.standingsPts;
+      }
+      const newPts={};
+
+      // Final
+      const fd=extractSection(parsed.final?.drivers,matchDriver,dn);
+      const fc=extractSection(parsed.final?.constructors,matchTeam,teams);
+      if(fd){newData.driversRanking=reconcileDrivers(fd.ranked,dn);newPts.finalDrivers=fd.ptsMap;}
+      if(fc){newData.constructorsRanking=fc.ranked;newPts.finalConstructors=fc.ptsMap;}
+
+      // Quarterly
+      const newQuarterly={...data.quarterly};
+      const appliedQuarters=[];
+      const skippedQuarters=[];
+      QUARTERS.forEach(q=>{
+        const qData=parsed[q];
+        const qd=extractSection(qData?.drivers,matchDriver,dn);
+        const qc=extractSection(qData?.constructors,matchTeam,teams);
+        if(qd&&qc){
+          newQuarterly[q]={...newQuarterly[q],hasData:true,drivers:reconcileDrivers(qd.ranked,dn),constructors:qc.ranked};
+          newPts[q+"Drivers"]=qd.ptsMap;
+          newPts[q+"Constructors"]=qc.ptsMap;
+          appliedQuarters.push(q);
+        } else {
+          skippedQuarters.push(q);
+        }
+      });
+      newData.quarterly=newQuarterly;
+      newData.standingsPts={...data.standingsPts,...newPts};
+
+      // Q1 snapshot — lock once Q2 data arrives
+      const q1Constructors=newQuarterly.Q1?.hasData?newQuarterly.Q1.constructors:null;
+      const q2HasData=newQuarterly.Q2?.hasData;
+      if(q1Constructors&&q2HasData&&!data.q1Snapshot){
+        newData.q1Snapshot=q1Constructors;
+      }
+
+      // Most improved — compare current final vs Q1 snapshot
+      const baseline=newData.q1Snapshot||data.q1Snapshot;
+      const currentStandings=newData.constructorsRanking;
+      if(baseline&&currentStandings&&q2HasData){
+        let bestTeam=null,bestGain=-Infinity,bestQ1Pos=-1;
+        teams.forEach(tm=>{
+          const q1Pos=baseline.indexOf(tm);
+          const curPos=currentStandings.indexOf(tm);
+          if(q1Pos===-1||curPos===-1) return;
+          const gain=q1Pos-curPos;
+          if(gain>bestGain||(gain===bestGain&&q1Pos>bestQ1Pos)){
+            bestGain=gain;bestTeam=tm;bestQ1Pos=q1Pos;
+          }
+        });
+        if(bestTeam) newData.biggestImprovement=bestTeam;
+      }
+
+      // H2H
+      if(parsed.headToHead){
+        const newH2H={...data.headToHead};
+        Object.entries(parsed.headToHead).forEach(([team,winner])=>{
+          if(!winner) return;
+          const matched=matchDriver(winner,dn);
+          if(matched) newH2H[team]=matched;
+        });
+        newData.headToHead=newH2H;
+      }
+
+      onChange(newData);
+
+      const h2hCount=parsed.headToHead?Object.values(parsed.headToHead).filter(Boolean).length:0;
+      const improvedMsg=newData.biggestImprovement?" + Most Improved ("+newData.biggestImprovement+")":"";
+      const snapshotMsg=newData.q1Snapshot&&!data.q1Snapshot?" + Q1 snapshot locked":"";
+      const msg="Applied: Final"+(appliedQuarters.length?" + "+appliedQuarters.join(", "):"")+(h2hCount?" + H2H ("+h2hCount+"/11)":"")+improvedMsg+snapshotMsg+(skippedQuarters.length?" | Skipped: "+skippedQuarters.join(", "):"");
+      setLog(msg);
+      setStatus("done");
+    }catch(e){
+      setStatus("error");setLog("Error: "+e.message);
+    }
+  }
+
+  return(
+    <div style={{marginBottom:24,padding:"14px",background:"#0a0a14",border:"1px solid #1e1e3a",borderRadius:6}}>
+      <div style={{fontSize:11,color:"#8888cc",fontFamily:MONO,marginBottom:10,letterSpacing:"0.06em"}}>SYNC STANDINGS FROM THE-RACE.COM</div>
+      <div style={{fontSize:11,color:MUTED,fontFamily:MONO,marginBottom:12,lineHeight:1.6}}>
+        Fetches live points and updates all standings. Quarterly sections score independently using only races in that range — partial data scores immediately. H2H updates based on current season totals.
+      </div>
+      <button onClick={sync} disabled={status==="loading"}
+        style={{background:status==="loading"?"#1a1a2a":ACCENT,border:"none",color:"#fff",padding:"10px 18px",borderRadius:4,cursor:status==="loading"?"default":"pointer",fontSize:12,fontFamily:MONO,minHeight:44,opacity:status==="loading"?0.7:1}}>
+        {status==="loading"?"FETCHING...":"SYNC ALL STANDINGS"}
+      </button>
+      {status==="loading"&&<div style={{fontSize:11,color:MUTED,fontFamily:MONO,marginTop:8}}>Fetching live data, this takes ~10 seconds...</div>}
+      {status==="error"&&<div style={{fontSize:11,color:"#cc4444",fontFamily:MONO,marginTop:8}}>{log}</div>}
+      {status==="done"&&<div style={{fontSize:11,color:"#4a8a4a",fontFamily:MONO,marginTop:8}}>{log}</div>}
+    </div>
+  );
+}
+
+// ─── STANDINGS TABLE (Results display with pts + delta) ───────────────────────
+function StandingsTable({items,ptsMap,prevPtsMap,onChange,q1Snapshot,showImprovement}){
+  // delta = change in pts from prev sync (not position change)
+  function delta(name){
+    if(!ptsMap||!prevPtsMap) return null;
+    const cur=ptsMap[name]??0;
+    const prev=prevPtsMap[name]??0;
+    return cur-prev;
+  }
+  // position change vs Q1 snapshot (for improvement column)
+  function posChange(name){
+    if(!q1Snapshot||!items) return null;
+    const q1Pos=q1Snapshot.indexOf(name);
+    const curPos=items.indexOf(name);
+    if(q1Pos===-1||curPos===-1) return null;
+    return q1Pos-curPos; // positive = climbed
+  }
+  const hasData=ptsMap&&Object.values(ptsMap).some(v=>v>0);
+  return(
+    <div style={{border:"1px solid "+BORDER,borderRadius:4,overflow:"hidden",fontSize:12}}>
+      <div style={{display:"grid",gridTemplateColumns:showImprovement?"28px 1fr 50px 44px 44px":"28px 1fr 50px 44px",padding:"5px 10px",background:"#0a0a0a",borderBottom:"1px solid "+BORDER2,fontSize:10,color:MUTED,fontFamily:MONO}}>
+        <span>#</span><span>ENTRY</span>
+        <span style={{textAlign:"right"}}>{showImprovement?"Q1":"PTS"}</span>
+        <span style={{textAlign:"right"}}>{showImprovement?"NOW":"±"}</span>
+        {showImprovement&&<span style={{textAlign:"right"}}>MOVE</span>}
+      </div>
+      {items.map((item,i)=>{
+        const pts=ptsMap?.[item]??null;
+        const d=delta(item);
+        const pc=showImprovement?posChange(item):null;
+        const dColor=d===null?DIM:d>0?"#4a8a4a":d<0?"#8a3a3a":MUTED;
+        const pcColor=pc===null?DIM:pc>0?"#4a8a4a":pc<0?"#8a3a3a":MUTED;
+        return(
+          <div key={item} style={{display:"grid",gridTemplateColumns:showImprovement?"28px 1fr 50px 44px 44px":"28px 1fr 50px 44px",padding:"8px 10px",borderBottom:i<items.length-1?"1px solid "+BORDER:"none",background:i%2===0?CARD:"#0d0d0d",alignItems:"center"}}>
+            <span style={{color:DIM,fontFamily:MONO,fontSize:10}}>{i+1}</span>
+            <span style={{color:TEXT}}>{item}</span>
+            <span style={{textAlign:"right",fontFamily:MONO,color:hasData?TEXT:DIM,fontSize:11}}>{pts!==null&&hasData?pts:"—"}</span>
+            <span style={{textAlign:"right",fontFamily:MONO,color:dColor,fontSize:11}}>{d===null||!hasData?"—":d===0?"—":d>0?"+"+d:d}</span>
+            {showImprovement&&<span style={{textAlign:"right",fontFamily:MONO,color:pcColor,fontSize:11}}>{pc===null?"—":pc===0?"—":pc>0?"▲"+pc:"▼"+Math.abs(pc)}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── RESULTS FORM ─────────────────────────────────────────────────────────────
 function ResultsForm({data,onChange,teams,drivers,isMobile}){
   const dn=drivers.map(d=>d.name);
@@ -411,12 +622,11 @@ function ResultsForm({data,onChange,teams,drivers,isMobile}){
   function upQ(q,f,v){onChange({...data,quarterly:{...data.quarterly,[q]:{...data.quarterly?.[q],[f]:v}}});}
   return(
     <div style={{color:TEXT,paddingBottom:60}}>
+      <StandingsSync data={data} onChange={onChange} teams={teams} drivers={drivers}/>
       <Sec title="Final: Constructors Championship"/>
-      <RankList items={data.constructorsRanking||[...teams]} onChange={v=>up("constructorsRanking",v)} disabled={data.constructorsConfirmed}/>
-      <div style={{marginTop:10}}><ConfirmBtn confirmed={data.constructorsConfirmed} onConfirm={()=>up("constructorsConfirmed",true)} onUnconfirm={()=>up("constructorsConfirmed",false)}/></div>
+      <StandingsTable items={data.constructorsRanking||[...teams]} ptsMap={data.standingsPts?.finalConstructors} prevPtsMap={data.prevStandingsPts?.finalConstructors} onChange={v=>up("constructorsRanking",v)} q1Snapshot={data.q1Snapshot} showImprovement={!!data.q1Snapshot}/>
       <Sec title="Final: Drivers Championship"/>
-      <RankList items={data.driversRanking||[...dn]} onChange={v=>up("driversRanking",v)} disabled={data.driversConfirmed}/>
-      <div style={{marginTop:10}}><ConfirmBtn confirmed={data.driversConfirmed} onConfirm={()=>up("driversConfirmed",true)} onUnconfirm={()=>up("driversConfirmed",false)}/></div>
+      <StandingsTable items={data.driversRanking||[...dn]} ptsMap={data.standingsPts?.finalDrivers} prevPtsMap={data.prevStandingsPts?.finalDrivers} onChange={v=>up("driversRanking",v)}/>
       <Sec title="Bonus: Constructors Clinch Date" sub={"Season runs "+SEASON_DATES}/>
       <DateIn value={data.constructorsClinchDate} onChange={v=>up("constructorsClinchDate",v)}/>
       <Sec title="Bonus: Drivers Clinch Date" sub={"Season runs "+SEASON_DATES}/>
@@ -424,42 +634,59 @@ function ResultsForm({data,onChange,teams,drivers,isMobile}){
       <Sec title="Bonus: Departures"/>
       <PickList all={dn} selected={data.departures||[]} onChange={v=>up("departures",v)} max={5} disabled={data.departuresConfirmed}/>
       <div style={{marginTop:10}}><ConfirmBtn confirmed={data.departuresConfirmed} onConfirm={()=>up("departuresConfirmed",true)} onUnconfirm={()=>up("departuresConfirmed",false)}/></div>
-      <Sec title="Bonus: Head to Head Winners"/>
+      <Sec title="Bonus: Head to Head Winners" sub="Auto-updated by sync. Manual override available."/>
       <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:8}}>
         {teams.map(tm=>{
           const opts=drivers.filter(d=>d.team===tm).map(d=>d.name);
           return(
             <div key={tm} style={{background:CARD,padding:"10px",borderRadius:4,border:"1px solid "+BORDER}}>
               <div style={{fontSize:10,color:MUTED,marginBottom:6,fontFamily:MONO}}>{tm}</div>
-              <Sel value={data.headToHead?.[tm]||""} options={opts} onChange={v=>up("headToHead",{...data.headToHead,[tm]:v})} disabled={data.h2hConfirmed}/>
+              <Sel value={data.headToHead?.[tm]||""} options={opts} onChange={v=>up("headToHead",{...data.headToHead,[tm]:v})}/>
             </div>
           );
         })}
       </div>
-      <div style={{marginTop:10}}><ConfirmBtn confirmed={data.h2hConfirmed} onConfirm={()=>up("h2hConfirmed",true)} onUnconfirm={()=>up("h2hConfirmed",false)}/></div>
       <Sec title="Bonus: Top 3 Win Leaders"/>
       <PickList all={dn} selected={data.topWins||[]} onChange={v=>up("topWins",v)} max={3} disabled={data.winsConfirmed}/>
       <div style={{marginTop:10}}><ConfirmBtn confirmed={data.winsConfirmed} onConfirm={()=>up("winsConfirmed",true)} onUnconfirm={()=>up("winsConfirmed",false)}/></div>
-      <Sec title="Bonus: Most Improved Team"/>
-      <Sel value={data.biggestImprovement||""} options={teams} onChange={v=>up("biggestImprovement",v)} disabled={data.improvementConfirmed}/>
-      <div style={{marginTop:10}}><ConfirmBtn confirmed={data.improvementConfirmed} onConfirm={()=>up("improvementConfirmed",true)} onUnconfirm={()=>up("improvementConfirmed",false)}/></div>
+      <Sec title="Bonus: Most Improved Team" sub="Q1 baseline vs current standings. Locked once Q2 data available."/>
+      <div style={{padding:"12px",background:CARD,border:"1px solid "+BORDER,borderRadius:4,fontSize:12}}>
+        {data.biggestImprovement&&data.q1Snapshot?(()=>{
+          const q1Pos=data.q1Snapshot.indexOf(data.biggestImprovement)+1;
+          const curPos=(data.constructorsRanking||[]).indexOf(data.biggestImprovement)+1;
+          const move=q1Pos-curPos;
+          return(
+            <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:12,alignItems:"center"}}>
+              <span style={{color:TEXT,fontWeight:600}}>{data.biggestImprovement}</span>
+              <span style={{color:MUTED,fontFamily:MONO,fontSize:11}}>P{q1Pos} → P{curPos}</span>
+              <span style={{color:move>0?"#4a8a4a":move<0?"#8a3a3a":MUTED,fontFamily:MONO,fontWeight:700,fontSize:13}}>{move>0?"▲"+move:move<0?"▼"+Math.abs(move):"—"}</span>
+            </div>
+          );
+        })()
+        :data.biggestImprovement
+          ?<span style={{color:TEXT}}>{data.biggestImprovement}</span>
+          :<span style={{color:MUTED}}>Calculated automatically once Q2 races begin.</span>
+        }
+      </div>
       <Sec title="Tiebreaker: Safety Cars"/>
       <NumIn value={data.safetyCars} onChange={v=>up("safetyCars",v)} placeholder="actual count"/>
       {QUARTERS.map(q=>{
         const qDrivers=reconcileDrivers(data.quarterly?.[q]?.drivers,dn);
         const qConstructors=data.quarterly?.[q]?.constructors||[...teams];
+        const hasData=data.quarterly?.[q]?.hasData;
         return(
           <div key={q}>
-            <div style={{marginTop:24,padding:"8px 12px",background:"#0a0a14",border:"1px solid #1e1e3a",borderRadius:6,marginBottom:4,fontSize:11,color:"#8888cc",fontFamily:MONO,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+            <div style={{marginTop:24,padding:"8px 12px",background:"#0a0a14",border:"1px solid #1e1e3a",borderRadius:6,marginBottom:4,fontSize:11,color:"#8888cc",fontFamily:MONO}}>
               <span>{q} RESULTS — {Q_RACES[q]} ({Q_DATES[q]})</span>
-              <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
-                <input type="checkbox" checked={!!data.quarterly?.[q]?.locked} onChange={e=>upQ(q,"locked",e.target.checked)} style={{accentColor:ACCENT,width:18,height:18}}/>
-                <span style={{color:data.quarterly?.[q]?.locked?"#e8a060":MUTED,fontSize:11}}>{data.quarterly?.[q]?.locked?"LOCKED":"LOCK RESULTS"}</span>
-              </label>
+              {hasData&&<span style={{color:"#4a8a4a",marginLeft:8}}>LIVE</span>}
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              <div><Lbl>Constructors</Lbl><RankList items={qConstructors} onChange={v=>upQ(q,"constructors",v)} disabled={data.quarterly?.[q]?.locked}/></div>
-              <div><Lbl>Drivers</Lbl><RankList items={qDrivers} onChange={v=>upQ(q,"drivers",v)} disabled={data.quarterly?.[q]?.locked}/></div>
+              <div><Lbl>Constructors</Lbl>
+                <StandingsTable items={qConstructors} ptsMap={data.standingsPts?.[q+"Constructors"]} prevPtsMap={data.prevStandingsPts?.[q+"Constructors"]}/>
+              </div>
+              <div><Lbl>Drivers</Lbl>
+                <StandingsTable items={qDrivers} ptsMap={data.standingsPts?.[q+"Drivers"]} prevPtsMap={data.prevStandingsPts?.[q+"Drivers"]}/>
+              </div>
             </div>
           </div>
         );
@@ -608,18 +835,18 @@ function ComparePanel({allPreds,results,players,teams,drivers,isMobile}){
   if(!preds||!results) return null;
 
   const sections=[
-    {key:"con",label:"Constructors Ranking",confirmed:results.constructorsConfirmed,node:<RankCompare predList={preds.constructorsRanking||[...teams]} actualList={results.constructorsConfirmed?results.constructorsRanking:[]} scoreFn={scoreConRank} isMobile={isMobile}/>},
-    {key:"drv",label:"Drivers Ranking",confirmed:results.driversConfirmed,node:<RankCompare predList={preds.driversRanking||[...dn]} actualList={results.driversConfirmed?results.driversRanking:[]} scoreFn={scoreDrvRank} isMobile={isMobile}/>},
+    {key:"con",label:"Constructors Ranking",confirmed:!!(results.constructorsRanking?.length),node:<RankCompare predList={preds.constructorsRanking||[...teams]} actualList={results.constructorsRanking||[]} scoreFn={scoreConRank} isMobile={isMobile}/>},
+    {key:"drv",label:"Drivers Ranking",confirmed:!!(results.driversRanking?.length),node:<RankCompare predList={preds.driversRanking||[...dn]} actualList={results.driversRanking||[]} scoreFn={scoreDrvRank} isMobile={isMobile}/>},
     ...QUARTERS.flatMap(q=>[
-      {key:"q"+q+"c",label:q+" Constructors",confirmed:!!results.quarterly?.[q]?.locked,node:<RankCompare predList={preds.quarterly?.[q]?.constructors||[...teams]} actualList={results.quarterly?.[q]?.locked?results.quarterly[q].constructors:[]} scoreFn={scoreQCon} isMobile={isMobile}/>},
-      {key:"q"+q+"d",label:q+" Drivers",confirmed:!!results.quarterly?.[q]?.locked,node:<RankCompare predList={reconcileDrivers(preds.quarterly?.[q]?.drivers,dn)} actualList={results.quarterly?.[q]?.locked?results.quarterly[q].drivers:[]} scoreFn={scoreQDrv} isMobile={isMobile}/>},
+      {key:"q"+q+"c",label:q+" Constructors",confirmed:!!results.quarterly?.[q]?.hasData,node:<RankCompare predList={preds.quarterly?.[q]?.constructors||[...teams]} actualList={results.quarterly?.[q]?.hasData?results.quarterly[q].constructors:[]} scoreFn={scoreQCon} isMobile={isMobile}/>},
+      {key:"q"+q+"d",label:q+" Drivers",confirmed:!!results.quarterly?.[q]?.hasData,node:<RankCompare predList={reconcileDrivers(preds.quarterly?.[q]?.drivers,dn)} actualList={results.quarterly?.[q]?.hasData?results.quarterly[q].drivers:[]} scoreFn={scoreQDrv} isMobile={isMobile}/>},
     ]),
     {key:"ccon",label:"Constructors Clinch Date",confirmed:!!results.constructorsClinchDate,node:<ClinchCompare predDate={preds.constructorsClinchDate} actualDate={results.constructorsClinchDate}/>},
     {key:"cdrv",label:"Drivers Clinch Date",confirmed:!!results.driversClinchDate,node:<ClinchCompare predDate={preds.driversClinchDate} actualDate={results.driversClinchDate}/>},
     {key:"dep",label:"Driver Departures",confirmed:results.departuresConfirmed,node:<DepsCompare predList={preds.departures||[]} actualList={results.departures||[]} confirmed={results.departuresConfirmed}/>},
-    {key:"h2h",label:"Head to Head",confirmed:results.h2hConfirmed,node:<H2HCompare predMap={preds.headToHead} actualMap={results.headToHead} confirmed={results.h2hConfirmed} teams={teams}/>},
+    {key:"h2h",label:"Head to Head",confirmed:!!(results.headToHead&&Object.values(results.headToHead).some(v=>v)),node:<H2HCompare predMap={preds.headToHead} actualMap={results.headToHead} confirmed={!!(results.headToHead&&Object.values(results.headToHead).some(v=>v))} teams={teams}/>},
     {key:"wins",label:"Top 3 Win Leaders",confirmed:results.winsConfirmed,node:<WinsCompare predList={preds.topWins||[]} actualList={results.topWins||[]} confirmed={results.winsConfirmed}/>},
-    {key:"imp",label:"Biggest Team Improvement",confirmed:results.improvementConfirmed,node:<ImproveCompare predList={preds.biggestImprovement||[...teams]} actual={results.biggestImprovement} confirmed={results.improvementConfirmed}/>},
+    {key:"imp",label:"Biggest Team Improvement",confirmed:!!results.biggestImprovement,node:<ImproveCompare predList={preds.biggestImprovement||[...teams]} actual={results.biggestImprovement} confirmed={!!results.biggestImprovement}/>},
   ];
 
   return(
@@ -946,6 +1173,7 @@ function Rules({isMobile}){
 function Setup({config,onSave,onReset}){
   const [names,setNames]=useState(config.playerNames||DEFAULT_PLAYER_NAMES);
   const [confirmReset,setConfirmReset]=useState(false);
+  useEffect(()=>{setNames(config.playerNames||DEFAULT_PLAYER_NAMES);},[config.playerNames]);
   return(
     <div style={{paddingBottom:60}}>
       <Sec title="Player Names"/>
@@ -1034,7 +1262,7 @@ export default function App(){
   async function loadAll(){
     try{
       const keys=["f1-config","f1-results",...Array.from({length:NUM_PLAYERS},(_,i)=>predKey(i)),...Array.from({length:NUM_PLAYERS},(_,i)=>lockKey(i))];
-      const results_=await Promise.allSettled(keys.map(k=>db.get(k)));
+      const results_=await Promise.allSettled(keys.map(k=>window.storage.get(k)));
       const get=(r)=>r.status==="fulfilled"&&r.value?JSON.parse(r.value.value):null;
       const cfg=get(results_[0])||{playerNames:[...DEFAULT_PLAYER_NAMES],teams:DEFAULT_TEAMS,drivers:DEFAULT_DRIVERS};
       const res=get(results_[1]);
@@ -1059,11 +1287,11 @@ export default function App(){
   useEffect(()=>{loadAll().then(()=>setLoading(false));}, []);
 
   async function save(key,val){
-    try{await db.set(key,JSON.stringify(val));}catch(e){}
+    try{await window.storage.set(key,JSON.stringify(val));}catch(e){}
     setSaved(true);setTimeout(()=>setSaved(false),1500);
   }
   async function handleReset(){
-    for(const key of STORAGE_KEYS){try{await db.delete(key);}catch(e){}}
+    for(const key of STORAGE_KEYS){try{await window.storage.delete(key);}catch(e){}}
     const preds=Array.from({length:NUM_PLAYERS},()=>mkPreds(DEFAULT_TEAMS,DEFAULT_DRIVERS));
     setConfig({playerNames:[...DEFAULT_PLAYER_NAMES],teams:DEFAULT_TEAMS,drivers:DEFAULT_DRIVERS});
     setAllPreds(preds);setResults(mkResults(DEFAULT_TEAMS,DEFAULT_DRIVERS));
@@ -1092,10 +1320,9 @@ export default function App(){
 
       {/* Header */}
       <div style={{borderBottom:"1px solid "+BORDER,padding:headerPad,display:"flex",alignItems:"center",justifyContent:"space-between",background:"#050505",position:"sticky",top:0,zIndex:50}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <img src="/f1brain_icon_transparent.svg" alt="F1brain" style={{height:isMobile?20:24,width:"auto",opacity:0.9}}/>
+        <div>
           <span style={{fontFamily:MONO,fontSize:isMobile?12:13,fontWeight:700,color:ACCENT,letterSpacing:"0.12em"}}>F1 PREDICT</span>
-          <span style={{fontFamily:MONO,fontSize:10,color:MUTED,letterSpacing:"0.08em"}}>2026</span>
+          <span style={{fontFamily:MONO,fontSize:10,color:MUTED,marginLeft:10,letterSpacing:"0.08em"}}>2026</span>
         </div>
         <div style={{display:"flex",gap:isMobile?8:16,alignItems:"center"}}>
           {saved&&<span style={{fontFamily:MONO,fontSize:10,color:"#4a8a4a"}}>SAVED</span>}
