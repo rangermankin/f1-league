@@ -91,8 +91,9 @@ function stripHtml(html) {
 }
 
 // Parse a standings block from cleaned lines.
-// Each row: pos (int), name (string tokens until next int), pts (int), r1-r24 (24 ints)
-function parseSection(lines, maxEntries) {
+// Driver rows: pos, name, team (skip), pts, r1-r24
+// Team rows:   pos, name, pts, r1-r24
+function parseSection(lines, maxEntries, skipTeamCol) {
   const entries = [];
   let i = 0;
 
@@ -104,10 +105,16 @@ function parseSection(lines, maxEntries) {
     if (isNaN(pos)) { i++; continue; }
     i++;
 
-    // Name: consume non-numeric lines
+    // Name: consume non-numeric lines, but stop at a known team name if skipTeamCol
     const nameParts = [];
     while (i < lines.length && isNaN(parseInt(lines[i], 10))) {
-      nameParts.push(lines[i]);
+      const line = lines[i];
+      // If we already have a name and this line is a known team, skip it (team column)
+      if (skipTeamCol && nameParts.length > 0 && TEAM_MAP[line.toLowerCase()]) {
+        i++; // skip the team column value
+        break;
+      }
+      nameParts.push(line);
       i++;
     }
     const rawName = nameParts.join(" ").trim();
@@ -170,8 +177,8 @@ export default async function handler(req) {
     const driverLines = lines.slice(drvIdx + 1, tmIdx);
     const teamLines   = lines.slice(tmIdx + 1);
 
-    const driverEntries = parseSection(driverLines, 22);
-    const teamEntries   = parseSection(teamLines, 11);
+    const driverEntries = parseSection(driverLines, 22, true);
+    const teamEntries   = parseSection(teamLines, 11, false);
 
     if (!driverEntries.length || !teamEntries.length) {
       throw new Error("Parsed 0 entries — page structure may have changed");
