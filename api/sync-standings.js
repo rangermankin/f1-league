@@ -91,13 +91,16 @@ function stripHtml(html) {
 }
 
 // Parse a standings block from cleaned lines.
-// Driver rows: pos, name, team (skip), pts, r1-r24
-// Team rows:   pos, name, pts, r1-r24
+// Driver rows: pos, name, team (skip), pts, r1-rN
+// Team rows:   pos, name, pts, r1-rN
 function parseSection(lines, maxEntries, skipTeamCol) {
   const entries = [];
-  let i = 0;
 
-  // Advance to first row (line === "1")
+  // Count actual race columns in the header (R1, R2, ...)
+  const raceCount = Math.max(1, lines.filter(l => /^R\d+$/.test(l)).length);
+
+  let i = 0;
+  // Advance past header to first data row (line === "1")
   while (i < lines.length && lines[i] !== "1") i++;
 
   while (i < lines.length && entries.length < maxEntries) {
@@ -109,7 +112,6 @@ function parseSection(lines, maxEntries, skipTeamCol) {
     const nameParts = [];
     while (i < lines.length && isNaN(parseInt(lines[i], 10))) {
       const line = lines[i];
-      // If we already have a name and this line is a known team, skip it (team column)
       if (skipTeamCol && nameParts.length > 0 && TEAM_MAP[line.toLowerCase()]) {
         i++; // skip the team column value
         break;
@@ -123,14 +125,14 @@ function parseSection(lines, maxEntries, skipTeamCol) {
     // pts total
     const pts = parseInt(lines[i++], 10) || 0;
 
-    // r1-r24
+    // Consume exactly raceCount race columns — not 24, which would eat next row's pos
     const racePts = [];
-    for (let r = 0; r < 24 && i < lines.length; r++) {
+    for (let r = 0; r < raceCount && i < lines.length; r++) {
       const v = parseInt(lines[i], 10);
       racePts.push(isNaN(v) ? 0 : v);
       i++;
     }
-    // Pad to 24 if page doesn't have all races yet
+    // Pad to 24 for quarter range indexing
     while (racePts.length < 24) racePts.push(0);
 
     entries.push({ rawName, pts, racePts });
