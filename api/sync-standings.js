@@ -220,17 +220,7 @@ export default async function handler(req) {
       out.headToHead[team] = (p1 === 0 && p2 === 0) ? null : (p1 >= p2 ? d1 : d2);
     }
 
-    return new Response(JSON.stringify({
-      ...out,
-      _debug: {
-        driverEntries: driverEntries.slice(0, 3),
-        teamEntries: teamEntries.slice(0, 3),
-        drvIdx,
-        tmIdx,
-        totalLines: lines.length,
-        sampleLines: lines.slice(drvIdx, drvIdx + 20),
-      }
-    }), {
+    return new Response(JSON.stringify(out), {
       status: 200,
       headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
