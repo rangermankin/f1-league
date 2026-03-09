@@ -429,7 +429,7 @@ function StandingsSync({data,onChange,teams,drivers}){
   async function sync(){
     setStatus("loading");setLog("");setPreview(null);
     try{
-      const API="https://api.anthropic.com/v1/messages";
+      const API="/api/anthropic";
       const model="claude-sonnet-4-20250514";
       const tools=[{type:"web_search_20250305",name:"web_search"}];
       const sysPrompt="You are a data extraction assistant. Return ONLY valid JSON with no markdown, no explanation, no backticks.";
