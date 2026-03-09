@@ -1,5 +1,31 @@
 import { useState, useEffect } from "react";
 
+const SUPABASE_URL = "https://knjvofhoamlvnmqtoiuq.supabase.co";
+const SUPABASE_KEY = "sb_publishable_QhKPtZS7VKyyVRLCflqEPg_ATs7igEY";
+
+const db = {
+  async get(key) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/app_data?key=eq.${encodeURIComponent(key)}&select=value`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    });
+    const rows = await res.json();
+    return rows.length ? { value: JSON.stringify(rows[0].value) } : null;
+  },
+  async set(key, value) {
+    await fetch(`${SUPABASE_URL}/rest/v1/app_data`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify({ key, value: JSON.parse(value), updated_at: new Date().toISOString() })
+    });
+  },
+  async delete(key) {
+    await fetch(`${SUPABASE_URL}/rest/v1/app_data?key=eq.${encodeURIComponent(key)}`, {
+      method: "DELETE",
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    });
+  }
+};
+
 const NUM_PLAYERS = 4;
 const DEFAULT_PLAYER_NAMES = ["Player 1","Player 2","Player 3","Player 4"];
 
@@ -1262,7 +1288,7 @@ export default function App(){
   async function loadAll(){
     try{
       const keys=["f1-config","f1-results",...Array.from({length:NUM_PLAYERS},(_,i)=>predKey(i)),...Array.from({length:NUM_PLAYERS},(_,i)=>lockKey(i))];
-      const results_=await Promise.allSettled(keys.map(k=>window.storage.get(k)));
+      const results_=await Promise.allSettled(keys.map(k=>db.get(k)));
       const get=(r)=>r.status==="fulfilled"&&r.value?JSON.parse(r.value.value):null;
       const cfg=get(results_[0])||{playerNames:[...DEFAULT_PLAYER_NAMES],teams:DEFAULT_TEAMS,drivers:DEFAULT_DRIVERS};
       const res=get(results_[1]);
@@ -1287,11 +1313,11 @@ export default function App(){
   useEffect(()=>{loadAll().then(()=>setLoading(false));}, []);
 
   async function save(key,val){
-    try{await window.storage.set(key,JSON.stringify(val));}catch(e){}
+    try{await db.set(key,JSON.stringify(val));}catch(e){}
     setSaved(true);setTimeout(()=>setSaved(false),1500);
   }
   async function handleReset(){
-    for(const key of STORAGE_KEYS){try{await window.storage.delete(key);}catch(e){}}
+    for(const key of STORAGE_KEYS){try{await db.delete(key);}catch(e){}}
     const preds=Array.from({length:NUM_PLAYERS},()=>mkPreds(DEFAULT_TEAMS,DEFAULT_DRIVERS));
     setConfig({playerNames:[...DEFAULT_PLAYER_NAMES],teams:DEFAULT_TEAMS,drivers:DEFAULT_DRIVERS});
     setAllPreds(preds);setResults(mkResults(DEFAULT_TEAMS,DEFAULT_DRIVERS));
