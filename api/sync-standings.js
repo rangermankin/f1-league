@@ -169,7 +169,16 @@ export default async function handler(req) {
 
     const html = await res.text();
     const text = stripHtml(html);
-    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+    // Rejoin split race header tokens: "R\n1" -> "R1"
+    const rawLines = text.split("\n").map(l => l.trim()).filter(Boolean);
+    const lines = [];
+    for (let i = 0; i < rawLines.length; i++) {
+      if (rawLines[i] === "R" && i + 1 < rawLines.length && /^\d+$/.test(rawLines[i + 1])) {
+        lines.push("R" + rawLines[++i]);
+      } else {
+        lines.push(rawLines[i]);
+      }
+    }
 
     // Find section boundaries
     const drvIdx = lines.findIndex(l => l === "Driver Standings");
