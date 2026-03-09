@@ -407,18 +407,6 @@ function PredForm({data,onChange,teams,drivers,preSeasonLocked,isMobile}){
 }
 
 // ─── STANDINGS SYNC ───────────────────────────────────────────────────────────
-function matchDriver(fetched, canonical){
-  const exact=canonical.find(n=>n===fetched);
-  if(exact) return exact;
-  const fetchedLast=fetched.split(" ").slice(-1)[0].toLowerCase();
-  return canonical.find(n=>n.split(" ").slice(-1)[0].toLowerCase()===fetchedLast)||null;
-}
-function matchTeam(fetched, canonical){
-  const exact=canonical.find(t=>t===fetched);
-  if(exact) return exact;
-  const fl=fetched.toLowerCase();
-  return canonical.find(t=>fl.includes(t.toLowerCase())||t.toLowerCase().includes(fl))||null;
-}
 
 function StandingsSync({data,onChange,teams,drivers}){
   const dn=drivers.map(d=>d.name);
@@ -427,69 +415,19 @@ function StandingsSync({data,onChange,teams,drivers}){
   const [preview,setPreview]=useState(null); // summary of what will be applied
 
   async function sync(){
-    setStatus("loading");setLog("");setPreview(null);
+    setStatus("loading");setLog("");
     try{
-      const API="/api/anthropic";
-      const model="claude-sonnet-4-20250514";
-      const tools=[{type:"web_search_20250305",name:"web_search"}];
-      const sysPrompt="You are a data extraction assistant. Return ONLY valid JSON with no markdown, no explanation, no backticks.";
-      const userMsg=`Fetch the F1 2026 standings page at https://www.the-race.com/results/formula-1/1-2026/
+      const res=await fetch("/api/sync-standings");
+      if(!res.ok) throw new Error("HTTP "+res.status);
+      const parsed=await res.json();
+      if(parsed.error) throw new Error(parsed.error);
+      if(!parsed.final) throw new Error("Unexpected response shape");
 
-The page shows driver and constructor standings with per-race point columns R1-R24.
-
-Return this JSON. Each entry is {name, pts} where pts is the relevant total. For quarters, sum only races in that range. Set a section to null if all pts are 0.
-
-Quarter ranges: Q1=R1-R7, Q2=R8-R13, Q3=R14-R19, Q4=R20-R24.
-
-Team H2H pairings (winner = higher total season pts, null if both 0):
-Red Bull: Max Verstappen vs Isack Hadjar | Ferrari: Charles Leclerc vs Lewis Hamilton
-Mercedes: Kimi Antonelli vs George Russell | McLaren: Lando Norris vs Oscar Piastri
-Aston Martin: Fernando Alonso vs Lance Stroll | Alpine: Pierre Gasly vs Franco Colapinto
-Williams: Alexander Albon vs Carlos Sainz Jr. | Racing Bulls: Liam Lawson vs Arvid Lindblad
-Haas: Esteban Ocon vs Oliver Bearman | Audi: Gabriel Bortoleto vs Nico Hulkenberg
-Cadillac: Sergio Perez vs Valtteri Bottas
-
-{
-  "final": {
-    "drivers": [{"name":"George Russell","pts":25}, ...all 22 by total pts desc],
-    "constructors": [{"name":"Mercedes","pts":43}, ...all 11 by total pts desc]
-  },
-  "Q1": {
-    "drivers": [{"name":"George Russell","pts":25}, ...by Q1 pts desc] or null,
-    "constructors": [{"name":"Mercedes","pts":43}, ...by Q1 pts desc] or null
-  },
-  "Q2": {"drivers": [...] or null, "constructors": [...] or null},
-  "Q3": {"drivers": [...] or null, "constructors": [...] or null},
-  "Q4": {"drivers": [...] or null, "constructors": [...] or null},
-  "headToHead": {"Red Bull": "winner name or null", "Ferrari": "...", "Mercedes": "...", "McLaren": "...", "Aston Martin": "...", "Alpine": "...", "Williams": "...", "Racing Bulls": "...", "Haas": "...", "Audi": "...", "Cadillac": "..."}
-}
-
-Use exact names from the page. Return only the JSON object.`;
-
-      let messages=[{role:"user",content:userMsg}];
-      let finalText="";
-
-      const resp=await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model,max_tokens:2000,tools,system:sysPrompt,messages})});
-      const d=await resp.json();
-      if(d.error) throw new Error(d.error.message);
-      const content=d.content||[];
-      finalText=content.filter(b=>b.type==="text").map(b=>b.text).join("");
-
-      if(!finalText) throw new Error("No text response from API");
-      const jsonMatch=finalText.replace(/```json|```/g,"").match(/\{[\s\S]*\}/);
-      if(!jsonMatch) throw new Error("No JSON in response");
-      const parsed=JSON.parse(jsonMatch[0]);
-      if(!parsed.final) throw new Error("Missing final standings in response");
-
-      // Helper: extract ranked names and points map from [{name,pts}] array
-      function extractSection(arr, matchFn, canonical){
+      // Names coming from route are already canonical — just build ranked+ptsMap
+      function extractSection(arr, canonical){
         if(!arr||!arr.length) return null;
-        const entries=arr.map(e=>({
-          name:matchFn(typeof e==="string"?e:e.name, canonical),
-          pts:typeof e==="object"?e.pts:0
-        })).filter(x=>x.name);
-        if(entries.every(e=>e.pts===0)) return null;
+        const entries=arr.filter(e=>canonical.includes(e.name));
+        if(!entries.length||entries.every(e=>e.pts===0)) return null;
         const names=entries.map(e=>e.name);
         const missing=canonical.filter(n=>!names.includes(n));
         const ptsMap={};entries.forEach(e=>{ptsMap[e.name]=e.pts;});
@@ -505,8 +443,8 @@ Use exact names from the page. Return only the JSON object.`;
       const newPts={};
 
       // Final
-      const fd=extractSection(parsed.final?.drivers,matchDriver,dn);
-      const fc=extractSection(parsed.final?.constructors,matchTeam,teams);
+      const fd=extractSection(parsed.final?.drivers,dn);
+      const fc=extractSection(parsed.final?.constructors,teams);
       if(fd){newData.driversRanking=reconcileDrivers(fd.ranked,dn);newPts.finalDrivers=fd.ptsMap;}
       if(fc){newData.constructorsRanking=fc.ranked;newPts.finalConstructors=fc.ptsMap;}
 
@@ -516,8 +454,8 @@ Use exact names from the page. Return only the JSON object.`;
       const skippedQuarters=[];
       QUARTERS.forEach(q=>{
         const qData=parsed[q];
-        const qd=extractSection(qData?.drivers,matchDriver,dn);
-        const qc=extractSection(qData?.constructors,matchTeam,teams);
+        const qd=extractSection(qData?.drivers,dn);
+        const qc=extractSection(qData?.constructors,teams);
         if(qd&&qc){
           newQuarterly[q]={...newQuarterly[q],hasData:true,drivers:reconcileDrivers(qd.ranked,dn),constructors:qc.ranked};
           newPts[q+"Drivers"]=qd.ptsMap;
@@ -554,13 +492,11 @@ Use exact names from the page. Return only the JSON object.`;
         if(bestTeam) newData.biggestImprovement=bestTeam;
       }
 
-      // H2H
+      // H2H — names already canonical from route
       if(parsed.headToHead){
         const newH2H={...data.headToHead};
         Object.entries(parsed.headToHead).forEach(([team,winner])=>{
-          if(!winner) return;
-          const matched=matchDriver(winner,dn);
-          if(matched) newH2H[team]=matched;
+          if(winner&&dn.includes(winner)) newH2H[team]=winner;
         });
         newData.headToHead=newH2H;
       }
