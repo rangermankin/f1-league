@@ -9,48 +9,27 @@ const CORS = {
 const Q_RANGES = { Q1: [0, 6], Q2: [7, 12], Q3: [13, 18], Q4: [19, 23] };
 
 const DRIVER_MAP = {
-  "andrea kimi antonelli": "Kimi Antonelli",
-  "kimi antonelli": "Kimi Antonelli",
-  "george russell": "George Russell",
-  "charles leclerc": "Charles Leclerc",
-  "lewis hamilton": "Lewis Hamilton",
-  "lando norris": "Lando Norris",
-  "max verstappen": "Max Verstappen",
-  "oliver bearman": "Oliver Bearman",
-  "arvid lindblad": "Arvid Lindblad",
-  "gabriel bortoleto": "Gabriel Bortoleto",
-  "pierre gasly": "Pierre Gasly",
-  "esteban ocon": "Esteban Ocon",
-  "alex albon": "Alexander Albon",
-  "alexander albon": "Alexander Albon",
-  "liam lawson": "Liam Lawson",
-  "franco colapinto": "Franco Colapinto",
-  "carlos sainz": "Carlos Sainz Jr.",
-  "carlos sainz jr.": "Carlos Sainz Jr.",
-  "sergio pérez": "Sergio Perez",
-  "sergio perez": "Sergio Perez",
-  "isack hadjar": "Isack Hadjar",
-  "oscar piastri": "Oscar Piastri",
-  "nico hülkenberg": "Nico Hulkenberg",
-  "nico hulkenberg": "Nico Hulkenberg",
-  "fernando alonso": "Fernando Alonso",
-  "valtteri bottas": "Valtteri Bottas",
+  "andrea kimi antonelli": "Kimi Antonelli", "kimi antonelli": "Kimi Antonelli",
+  "george russell": "George Russell", "charles leclerc": "Charles Leclerc",
+  "lewis hamilton": "Lewis Hamilton", "lando norris": "Lando Norris",
+  "max verstappen": "Max Verstappen", "oliver bearman": "Oliver Bearman",
+  "arvid lindblad": "Arvid Lindblad", "gabriel bortoleto": "Gabriel Bortoleto",
+  "pierre gasly": "Pierre Gasly", "esteban ocon": "Esteban Ocon",
+  "alex albon": "Alexander Albon", "alexander albon": "Alexander Albon",
+  "liam lawson": "Liam Lawson", "franco colapinto": "Franco Colapinto",
+  "carlos sainz": "Carlos Sainz Jr.", "carlos sainz jr.": "Carlos Sainz Jr.",
+  "sergio pérez": "Sergio Perez", "sergio perez": "Sergio Perez",
+  "isack hadjar": "Isack Hadjar", "oscar piastri": "Oscar Piastri",
+  "nico hülkenberg": "Nico Hulkenberg", "nico hulkenberg": "Nico Hulkenberg",
+  "fernando alonso": "Fernando Alonso", "valtteri bottas": "Valtteri Bottas",
   "lance stroll": "Lance Stroll",
 };
 
 const TEAM_MAP = {
-  "mercedes": "Mercedes",
-  "ferrari": "Ferrari",
-  "mclaren": "McLaren",
-  "red bull": "Red Bull",
-  "haas": "Haas",
-  "racing bulls": "Racing Bulls",
-  "rb": "Racing Bulls",
-  "audi": "Audi",
-  "alpine": "Alpine",
-  "williams": "Williams",
-  "cadillac": "Cadillac",
-  "aston martin": "Aston Martin",
+  "mercedes": "Mercedes", "ferrari": "Ferrari", "mclaren": "McLaren",
+  "red bull": "Red Bull", "haas": "Haas", "racing bulls": "Racing Bulls",
+  "rb": "Racing Bulls", "audi": "Audi", "alpine": "Alpine",
+  "williams": "Williams", "cadillac": "Cadillac", "aston martin": "Aston Martin",
 };
 
 const H2H_PAIRS = {
@@ -171,7 +150,7 @@ export default async function handler(req) {
       out.headToHead[team] = (p1 === 0 && p2 === 0) ? null : (p1 >= p2 ? d1 : d2);
     }
 
-    // Full per-race points arrays — used by the Standings Chart to reconstruct
+    // Full per-race points arrays — used by StandingsChart to reconstruct
     // standings at any race weekend without needing manual snapshots
     out.raceData = {
       drivers: driverEntries
