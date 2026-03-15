@@ -47,6 +47,20 @@ const DEFAULT_DRIVERS = [
   {name:"Sergio Perez",team:"Cadillac"},{name:"Valtteri Bottas",team:"Cadillac"},
 ];
 
+const H2H_PAIRS = {
+  "Red Bull":      ["Max Verstappen","Isack Hadjar"],
+  "Ferrari":       ["Charles Leclerc","Lewis Hamilton"],
+  "Mercedes":      ["Kimi Antonelli","George Russell"],
+  "McLaren":       ["Lando Norris","Oscar Piastri"],
+  "Aston Martin":  ["Fernando Alonso","Lance Stroll"],
+  "Alpine":        ["Pierre Gasly","Franco Colapinto"],
+  "Williams":      ["Alexander Albon","Carlos Sainz Jr."],
+  "Racing Bulls":  ["Liam Lawson","Arvid Lindblad"],
+  "Haas":          ["Esteban Ocon","Oliver Bearman"],
+  "Audi":          ["Gabriel Bortoleto","Nico Hulkenberg"],
+  "Cadillac":      ["Sergio Perez","Valtteri Bottas"],
+};
+
 const RACE_CALENDAR = [
   {r:1,  name:"Australian GP",         date:"8 Mar"},  {r:2,  name:"Chinese GP",            date:"15 Mar"},
   {r:3,  name:"Japanese GP",           date:"29 Mar"}, {r:4,  name:"Bahrain GP",             date:"12 Apr"},
@@ -72,8 +86,10 @@ const BG="#080808",CARD="#101010",BORDER="#1e1e1e",BORDER2="#2a2a2a";
 const TEXT="#e8e8e8",MUTED="#666",DIM="#444",ACCENT="#e10600";
 const INPUTBG="#0d0d0d",MONO="'DM Mono','Courier New',monospace";
 const GREEN="#4a8a4a",YELLOW="#a08030",RED="#8a3a3a";
+
 const PLAYER_COLORS=["#e10600","#38bdf8","#f59e0b","#4ade80"];
 const RACE_ABBR=["AUS","CHN","JPN","BHR","SAU","MIA","CAN","MON","BCN","AUT","GBR","BEL","HUN","NLD","ITA","SPA","AZE","SGP","USA","MEX","BRA","LVG","QAT","ABD"];
+const Q_IDX={Q1:[0,6],Q2:[7,12],Q3:[13,18],Q4:[19,23]};
 
 const predKey  = i => "f1-preds-"+i;
 const lockKey  = i => "f1-prelocked-"+i;
@@ -414,6 +430,7 @@ function StandingsSync({data,onChange,teams,drivers}){
   const dn=drivers.map(d=>d.name);
   const [status,setStatus]=useState("idle");
   const [log,setLog]=useState("");
+  const [preview,setPreview]=useState(null); // summary of what will be applied
 
   async function sync(){
     setStatus("loading");setLog("");
@@ -424,6 +441,7 @@ function StandingsSync({data,onChange,teams,drivers}){
       if(parsed.error) throw new Error(parsed.error);
       if(!parsed.final) throw new Error("Unexpected response shape");
 
+      // Names coming from route are already canonical — just build ranked+ptsMap
       function extractSection(arr, canonical){
         if(!arr||!arr.length) return null;
         const entries=arr.filter(e=>canonical.includes(e.name));
@@ -436,16 +454,19 @@ function StandingsSync({data,onChange,teams,drivers}){
 
       const newData={...data};
 
+      // Save current standings as prev before overwriting
       if(data.standingsPts){
         newData.prevStandingsPts=data.standingsPts;
       }
       const newPts={};
 
+      // Final
       const fd=extractSection(parsed.final?.drivers,dn);
       const fc=extractSection(parsed.final?.constructors,teams);
       if(fd){newData.driversRanking=reconcileDrivers(fd.ranked,dn);newPts.finalDrivers=fd.ptsMap;}
       if(fc){newData.constructorsRanking=fc.ranked;newPts.finalConstructors=fc.ptsMap;}
 
+      // Quarterly
       const newQuarterly={...data.quarterly};
       const appliedQuarters=[];
       const skippedQuarters=[];
@@ -465,12 +486,14 @@ function StandingsSync({data,onChange,teams,drivers}){
       newData.quarterly=newQuarterly;
       newData.standingsPts={...data.standingsPts,...newPts};
 
+      // Q1 snapshot — lock once Q2 data arrives
       const q1Constructors=newQuarterly.Q1?.hasData?newQuarterly.Q1.constructors:null;
       const q2HasData=newQuarterly.Q2?.hasData;
       if(q1Constructors&&q2HasData&&!data.q1Snapshot){
         newData.q1Snapshot=q1Constructors;
       }
 
+      // Most improved — compare current final vs Q1 snapshot
       const baseline=newData.q1Snapshot||data.q1Snapshot;
       const currentStandings=newData.constructorsRanking;
       if(baseline&&currentStandings&&q2HasData){
@@ -487,6 +510,7 @@ function StandingsSync({data,onChange,teams,drivers}){
         if(bestTeam) newData.biggestImprovement=bestTeam;
       }
 
+      // H2H — names already canonical from route
       if(parsed.headToHead){
         const newH2H={...data.headToHead};
         Object.entries(parsed.headToHead).forEach(([team,winner])=>{
@@ -494,6 +518,9 @@ function StandingsSync({data,onChange,teams,drivers}){
         });
         newData.headToHead=newH2H;
       }
+
+      // Store full per-race data for the Standings Chart
+      if(parsed.raceData) newData.raceData=parsed.raceData;
 
       onChange(newData);
 
@@ -527,18 +554,20 @@ function StandingsSync({data,onChange,teams,drivers}){
 
 // ─── STANDINGS TABLE (Results display with pts + delta) ───────────────────────
 function StandingsTable({items,ptsMap,prevPtsMap,onChange,q1Snapshot,showImprovement}){
+  // delta = change in pts from prev sync (not position change)
   function delta(name){
     if(!ptsMap||!prevPtsMap) return null;
     const cur=ptsMap[name]??0;
     const prev=prevPtsMap[name]??0;
     return cur-prev;
   }
+  // position change vs Q1 snapshot (for improvement column)
   function posChange(name){
     if(!q1Snapshot||!items) return null;
     const q1Pos=q1Snapshot.indexOf(name);
     const curPos=items.indexOf(name);
     if(q1Pos===-1||curPos===-1) return null;
-    return q1Pos-curPos;
+    return q1Pos-curPos; // positive = climbed
   }
   const hasData=ptsMap&&Object.values(ptsMap).some(v=>v>0);
   return(
@@ -849,7 +878,11 @@ function Leaderboard({allPreds,results,players,teams,drivers,isMobile}){
     topWins:"Top 3 Win Leaders",biggestImprovement:"Biggest Improvement"
   };
 
+  // On mobile: show one score card at a time in a carousel-like paginator
+  const [cardIdx,setCardIdx]=useState(0);
   const sorted=[...scores.map((s,i)=>({s,i,rank:scores.filter(x=>x.total>s.total).length+1}))].sort((a,b)=>b.s.total-a.s.total);
+
+  // Column grid — on mobile use a horizontally scrollable table
   const colGrid="1fr "+players.map(()=>"52px").join(" ");
 
   function ScoreRow({label,vals,indent}){
@@ -878,11 +911,12 @@ function Leaderboard({allPreds,results,players,teams,drivers,isMobile}){
         </div>
       )}
 
+      {/* Score cards — 2×2 on mobile */}
       <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, 1fr)",gap:isMobile?8:12,marginBottom:20}}>
         {sorted.map(({s,i,rank})=>(
           <div key={i} style={{background:CARD,border:"1px solid "+(rank===1&&anyResults?ACCENT:BORDER),borderRadius:6,padding:isMobile?12:16,textAlign:"center"}}>
-            {anyResults&&<div style={{fontSize:10,color:rank===1?ACCENT:DIM,fontFamily:MONO,marginBottom:2}}>#"+rank}</div>}
-            <div style={{fontSize:10,color:MUTED,fontFamily:MONO,marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{shortName(players[i])}</div>
+            {anyResults&&<div style={{fontSize:10,color:rank===1?ACCENT:DIM,fontFamily:MONO,marginBottom:2}}>{"#"+rank}</div>}
+            <div style={{fontSize:isMobile?10:10,color:MUTED,fontFamily:MONO,marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{shortName(players[i])}</div>
             <div style={{fontSize:isMobile?28:32,fontWeight:800,color:anyResults?ACCENT:DIM,fontFamily:MONO,lineHeight:1}}>{s.total}</div>
             <div style={{fontSize:9,color:MUTED,marginTop:2}}>pts</div>
             <div style={{marginTop:8,height:3,background:BORDER,borderRadius:2}}>
@@ -892,6 +926,7 @@ function Leaderboard({allPreds,results,players,teams,drivers,isMobile}){
         ))}
       </div>
 
+      {/* Score table — horizontally scrollable on mobile */}
       <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
         <div style={{minWidth:isMobile?340:500,border:"1px solid "+BORDER,borderRadius:6,overflow:"hidden"}}>
           <div style={{display:"grid",gridTemplateColumns:colGrid,gap:4,padding:"8px 10px",background:"#0a0a0a",borderBottom:"1px solid "+BORDER2}}>
@@ -953,44 +988,74 @@ function Leaderboard({allPreds,results,players,teams,drivers,isMobile}){
   );
 }
 
+
 // ─── STANDINGS CHART ──────────────────────────────────────────────────────────
-function StandingsChart({allPreds,results,players,onResultsChange,isMobile}){
-  const [selectedRace,setSelectedRace]=useState("");
-  const [confirmDelete,setConfirmDelete]=useState(null);
+function StandingsChart({allPreds,results,players,isMobile}){
+  const raceData=results?.raceData;
 
-  const history=(results?.scoreHistory||[]).slice().sort((a,b)=>a.race-b.race);
-
-  function recordSnapshot(){
-    if(!selectedRace) return;
-    const raceNum=parseInt(selectedRace);
-    const scores=allPreds.map(p=>calcAllScores(p,results).total);
-    const existing=(results.scoreHistory||[]).filter(h=>h.race!==raceNum);
-    const newHistory=[...existing,{race:raceNum,scores}].sort((a,b)=>a.race-b.race);
-    onResultsChange({...results,scoreHistory:newHistory});
-    setSelectedRace("");
+  function rankAtRace(entries,from,to,R){
+    if(R<=from) return null;
+    const end=Math.min(R,to+1);
+    const ranked=entries
+      .map(e=>({name:e.name,pts:e.racePts.slice(from,end).reduce((a,b)=>a+b,0)}))
+      .sort((a,b)=>b.pts-a.pts);
+    return ranked.some(e=>e.pts>0)?ranked:null;
   }
 
-  function deleteSnapshot(raceNum){
-    const newHistory=(results.scoreHistory||[]).filter(h=>h.race!==raceNum);
-    onResultsChange({...results,scoreHistory:newHistory});
-    setConfirmDelete(null);
+  function h2hAtRace(R){
+    const driverPts={};
+    raceData.drivers.forEach(e=>{
+      driverPts[e.name]=e.racePts.slice(0,R).reduce((a,b)=>a+b,0);
+    });
+    const h2h={};
+    for(const[team,[d1,d2]] of Object.entries(H2H_PAIRS)){
+      const p1=driverPts[d1]??0,p2=driverPts[d2]??0;
+      h2h[team]=(p1===0&&p2===0)?"":( p1>=p2?d1:d2);
+    }
+    return h2h;
+  }
+
+  const snapshots=[];
+  if(raceData){
+    for(let R=1;R<=24;R++){
+      const finalDrivers=rankAtRace(raceData.drivers,0,23,R);
+      const finalConstructors=rankAtRace(raceData.constructors,0,23,R);
+      if(!finalDrivers&&!finalConstructors) continue;
+      const quarterly={};
+      QUARTERS.forEach(q=>{
+        const[from,to]=Q_IDX[q];
+        const qDrv=rankAtRace(raceData.drivers,from,to,R);
+        const qCon=rankAtRace(raceData.constructors,from,to,R);
+        quarterly[q]={
+          hasData:!!(qDrv&&qCon),
+          drivers:qDrv?qDrv.map(d=>d.name):[],
+          constructors:qCon?qCon.map(c=>c.name):[],
+        };
+      });
+      const partialResults={
+        ...results,
+        constructorsRanking:finalConstructors?finalConstructors.map(c=>c.name):[],
+        driversRanking:finalDrivers?finalDrivers.map(d=>d.name):[],
+        quarterly,
+        headToHead:h2hAtRace(R),
+      };
+      const scores=allPreds.map(p=>calcAllScores(p,partialResults).total);
+      snapshots.push({race:R,scores});
+    }
   }
 
   const W=680,H=300;
   const PAD={top:24,right:100,bottom:44,left:44};
   const cW=W-PAD.left-PAD.right;
   const cH=H-PAD.top-PAD.bottom;
-  const maxScore=Math.max(...history.flatMap(h=>h.scores),50);
+  const maxScore=Math.max(...snapshots.flatMap(s=>s.scores),50);
   const yMax=Math.ceil((maxScore+40)/100)*100;
   const xPos=r=>PAD.left+((r-1)/23)*cW;
   const yPos=s=>PAD.top+cH-(s/yMax)*cH;
   const yTicks=[];
   for(let y=0;y<=yMax;y+=100) yTicks.push(y);
 
-  const rawLabels=allPreds.map((_,pi)=>{
-    if(!history.length) return null;
-    return{pi,y:yPos(history[history.length-1].scores[pi])};
-  }).filter(Boolean);
+  const rawLabels=snapshots.length>0?allPreds.map((_,pi)=>({pi,y:yPos(snapshots[snapshots.length-1].scores[pi])})):[];
   rawLabels.sort((a,b)=>a.y-b.y);
   for(let i=1;i<rawLabels.length;i++){
     if(rawLabels[i].y-rawLabels[i-1].y<14) rawLabels[i].y=rawLabels[i-1].y+14;
@@ -998,150 +1063,124 @@ function StandingsChart({allPreds,results,players,onResultsChange,isMobile}){
   const labelY={};
   rawLabels.forEach(l=>{labelY[l.pi]=l.y;});
 
-  const currentScores=allPreds.map(p=>calcAllScores(p,results).total);
-  const colGrid="40px 1fr "+players.map(()=>"52px").join(" ")+" 44px";
+  const colGrid="40px 1fr "+players.map(()=>"52px").join(" ");
+
+  if(!raceData){
+    return(
+      <div style={{padding:"48px 24px",textAlign:"center",color:MUTED,fontFamily:MONO,fontSize:12,border:"1px solid "+BORDER,borderRadius:6}}>
+        No race data yet. Go to Results and sync standings first.
+      </div>
+    );
+  }
+  if(snapshots.length===0){
+    return(
+      <div style={{padding:"48px 24px",textAlign:"center",color:MUTED,fontFamily:MONO,fontSize:12,border:"1px solid "+BORDER,borderRadius:6}}>
+        Race data found but no scored races yet.
+      </div>
+    );
+  }
 
   return(
     <div style={{color:TEXT,paddingBottom:60}}>
-      <div style={{marginBottom:20,padding:"14px",background:"#0a0a14",border:"1px solid #1e1e3a",borderRadius:6}}>
-        <div style={{fontSize:11,color:"#8888cc",fontFamily:MONO,marginBottom:10,letterSpacing:"0.06em"}}>RECORD SNAPSHOT</div>
-        <div style={{fontSize:11,color:MUTED,fontFamily:MONO,marginBottom:12,lineHeight:1.6}}>
-          Captures current scores for all players at the selected race weekend. Record after each sync.
-        </div>
-        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <select value={selectedRace} onChange={e=>setSelectedRace(e.target.value)}
-            style={{background:INPUTBG,border:"1px solid "+BORDER2,color:selectedRace?TEXT:MUTED,padding:"10px 12px",borderRadius:4,fontSize:12,fontFamily:MONO,outline:"none",minWidth:isMobile?"100%":240}}>
-            <option value="">Select race weekend...</option>
-            {RACE_CALENDAR.map(r=>{
-              const exists=history.some(h=>h.race===r.r);
-              return <option key={r.r} value={r.r}>{r.r}. {r.name} ({r.date}){exists?" ✓":""}</option>;
-            })}
-          </select>
-          <button onClick={recordSnapshot} disabled={!selectedRace}
-            style={{background:selectedRace?ACCENT:"#1a1a1a",border:"none",color:"#fff",padding:"10px 18px",borderRadius:4,cursor:selectedRace?"pointer":"default",fontSize:12,fontFamily:MONO,minHeight:44,opacity:selectedRace?1:0.5}}>
-            {history.some(h=>h.race===parseInt(selectedRace))?"RE-RECORD":"RECORD"}
-          </button>
-        </div>
-        {selectedRace&&(
-          <div style={{marginTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
-            {allPreds.map((_,i)=>(
-              <span key={i} style={{fontSize:11,fontFamily:MONO}}>
-                <span style={{color:PLAYER_COLORS[i]}}>{shortName(players[i])}</span>
-                <span style={{color:MUTED}}>: </span>
-                <span style={{color:TEXT,fontWeight:600}}>{currentScores[i]}</span>
-              </span>
-            ))}
-          </div>
-        )}
+      <div style={{marginBottom:16,display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
+        {players.map((name,i)=>(
+          <span key={i} style={{fontSize:11,fontFamily:MONO,display:"flex",alignItems:"center",gap:6}}>
+            <span style={{width:16,height:2,background:PLAYER_COLORS[i],display:"inline-block",borderRadius:1,flexShrink:0}}/>
+            <span style={{color:PLAYER_COLORS[i]}}>{shortName(name)}</span>
+            <span style={{color:MUTED}}>{snapshots[snapshots.length-1].scores[i]} pts</span>
+          </span>
+        ))}
       </div>
-
-      {history.length===0?(
-        <div style={{padding:"48px 24px",textAlign:"center",color:MUTED,fontFamily:MONO,fontSize:12,border:"1px solid "+BORDER,borderRadius:6}}>
-          No snapshots yet. Sync standings then record after each race weekend.
-        </div>
-      ):(
-        <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",marginBottom:20}}>
-          <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",minWidth:isMobile?420:"auto",display:"block"}}>
-            {yTicks.map(y=>(
-              <g key={y}>
-                <line x1={PAD.left} x2={PAD.left+cW} y1={yPos(y)} y2={yPos(y)}
-                  stroke={y===0?BORDER2:BORDER} strokeWidth={y===0?1:0.5} strokeDasharray={y>0?"4,4":undefined}/>
-                <text x={PAD.left-6} y={yPos(y)+4} textAnchor="end"
-                  fill={MUTED} fontSize={9} fontFamily="DM Mono,monospace">{y}</text>
+      <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",marginBottom:24}}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",minWidth:isMobile?420:"auto",display:"block"}}>
+          {yTicks.map(y=>(
+            <g key={y}>
+              <line x1={PAD.left} x2={PAD.left+cW} y1={yPos(y)} y2={yPos(y)}
+                stroke={y===0?BORDER2:BORDER} strokeWidth={y===0?1:0.5} strokeDasharray={y>0?"4,4":undefined}/>
+              <text x={PAD.left-6} y={yPos(y)+4} textAnchor="end"
+                fill={MUTED} fontSize={9} fontFamily="DM Mono,monospace">{y}</text>
+            </g>
+          ))}
+          {RACE_CALENDAR.map(r=>{
+            const x=xPos(r.r);
+            const hasData=snapshots.some(s=>s.race===r.r);
+            const showLabel=[1,4,8,13,16,20,24].includes(r.r);
+            return(
+              <g key={r.r}>
+                {hasData&&<line x1={x} x2={x} y1={PAD.top} y2={PAD.top+cH} stroke="#1a1a1a" strokeWidth={1}/>}
+                <line x1={x} x2={x} y1={PAD.top+cH} y2={PAD.top+cH+(hasData?6:3)}
+                  stroke={hasData?TEXT:BORDER2} strokeWidth={hasData?1.5:0.5}/>
+                {showLabel&&<text x={x} y={PAD.top+cH+16} textAnchor="middle"
+                  fill={hasData?TEXT:DIM} fontSize={8} fontFamily="DM Mono,monospace">
+                  {RACE_ABBR[r.r-1]}
+                </text>}
+                {hasData&&<text x={x} y={PAD.top+cH+28} textAnchor="middle"
+                  fill={DIM} fontSize={7} fontFamily="DM Mono,monospace">R{r.r}</text>}
               </g>
-            ))}
-            {RACE_CALENDAR.map(r=>{
-              const x=xPos(r.r);
-              const hasData=history.some(h=>h.race===r.r);
-              const showLabel=[1,4,8,13,16,20,24].includes(r.r);
-              return(
-                <g key={r.r}>
-                  {hasData&&<line x1={x} x2={x} y1={PAD.top} y2={PAD.top+cH} stroke="#1a1a1a" strokeWidth={1}/>}
-                  <line x1={x} x2={x} y1={PAD.top+cH} y2={PAD.top+cH+(hasData?6:3)}
-                    stroke={hasData?TEXT:BORDER2} strokeWidth={hasData?1.5:0.5}/>
-                  {showLabel&&<text x={x} y={PAD.top+cH+16} textAnchor="middle"
-                    fill={hasData?TEXT:DIM} fontSize={8} fontFamily="DM Mono,monospace">
-                    {RACE_ABBR[r.r-1]}
-                  </text>}
-                  {hasData&&<text x={x} y={PAD.top+cH+28} textAnchor="middle"
-                    fill={DIM} fontSize={7} fontFamily="DM Mono,monospace">R{r.r}</text>}
-                </g>
-              );
-            })}
-            {allPreds.map((_,pi)=>{
-              const pts=history.map(h=>({r:h.race,s:h.scores[pi]}));
-              if(!pts.length) return null;
-              const d=pts.map((p,i)=>`${i===0?"M":"L"}${xPos(p.r)},${yPos(p.s)}`).join(" ");
-              return(
-                <g key={pi}>
-                  <path d={d} fill="none" stroke={PLAYER_COLORS[pi]} strokeWidth={2.5}
-                    strokeLinejoin="round" strokeLinecap="round"/>
-                  {pts.map(p=>(
-                    <circle key={p.r} cx={xPos(p.r)} cy={yPos(p.s)} r={3.5}
-                      fill={PLAYER_COLORS[pi]} stroke={BG} strokeWidth={1.5}/>
-                  ))}
-                </g>
-              );
-            })}
-            {history.length>0&&allPreds.map((_,pi)=>{
-              const ly=labelY[pi];
-              if(ly===undefined) return null;
-              const lastX=xPos(history[history.length-1].race);
-              const dotY=yPos(history[history.length-1].scores[pi]);
-              return(
-                <g key={pi}>
-                  <line x1={lastX+4} x2={PAD.left+cW+6} y1={dotY} y2={ly+2}
-                    stroke={PLAYER_COLORS[pi]} strokeWidth={0.75} strokeDasharray="2,2" opacity={0.4}/>
-                  <text x={PAD.left+cW+9} y={ly+4} fill={PLAYER_COLORS[pi]}
-                    fontSize={10} fontFamily="DM Mono,monospace" fontWeight={700}>
-                    {shortName(players[pi])}
-                  </text>
-                  <text x={PAD.left+cW+9} y={ly+15} fill={PLAYER_COLORS[pi]}
-                    fontSize={9} fontFamily="DM Mono,monospace" opacity={0.8}>
-                    {history[history.length-1].scores[pi]}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
+            );
+          })}
+          {allPreds.map((_,pi)=>{
+            const pts=snapshots.map(s=>({r:s.race,s:s.scores[pi]}));
+            if(!pts.length) return null;
+            const d=pts.map((p,i)=>`${i===0?"M":"L"}${xPos(p.r)},${yPos(p.s)}`).join(" ");
+            return(
+              <g key={pi}>
+                <path d={d} fill="none" stroke={PLAYER_COLORS[pi]} strokeWidth={2.5}
+                  strokeLinejoin="round" strokeLinecap="round"/>
+                {pts.map(p=>(
+                  <circle key={p.r} cx={xPos(p.r)} cy={yPos(p.s)} r={3.5}
+                    fill={PLAYER_COLORS[pi]} stroke={BG} strokeWidth={1.5}/>
+                ))}
+              </g>
+            );
+          })}
+          {allPreds.map((_,pi)=>{
+            const ly=labelY[pi];
+            if(ly===undefined) return null;
+            const lastX=xPos(snapshots[snapshots.length-1].race);
+            const dotY=yPos(snapshots[snapshots.length-1].scores[pi]);
+            return(
+              <g key={pi}>
+                <line x1={lastX+4} x2={PAD.left+cW+6} y1={dotY} y2={ly+2}
+                  stroke={PLAYER_COLORS[pi]} strokeWidth={0.75} strokeDasharray="2,2" opacity={0.4}/>
+                <text x={PAD.left+cW+9} y={ly+4} fill={PLAYER_COLORS[pi]}
+                  fontSize={10} fontFamily="DM Mono,monospace" fontWeight={700}>
+                  {shortName(players[pi])}
+                </text>
+                <text x={PAD.left+cW+9} y={ly+15} fill={PLAYER_COLORS[pi]}
+                  fontSize={9} fontFamily="DM Mono,monospace" opacity={0.8}>
+                  {snapshots[snapshots.length-1].scores[pi]}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      <div style={{fontSize:10,color:MUTED,fontFamily:MONO,marginBottom:8,letterSpacing:"0.1em"}}>RACE BY RACE</div>
+      <div style={{border:"1px solid "+BORDER,borderRadius:4,overflow:"hidden"}}>
+        <div style={{display:"grid",gridTemplateColumns:colGrid,gap:4,padding:"6px 12px",background:"#0a0a0a",borderBottom:"1px solid "+BORDER2,fontSize:9,color:MUTED,fontFamily:MONO}}>
+          <span>#</span><span>RACE</span>
+          {players.map((n,i)=><span key={i} style={{textAlign:"right",color:PLAYER_COLORS[i]}}>{shortName(n)}</span>)}
         </div>
-      )}
-
-      {history.length>0&&(
-        <div>
-          <div style={{fontSize:10,color:MUTED,fontFamily:MONO,marginBottom:8,letterSpacing:"0.1em"}}>RECORDED SNAPSHOTS</div>
-          <div style={{border:"1px solid "+BORDER,borderRadius:4,overflow:"hidden"}}>
-            <div style={{display:"grid",gridTemplateColumns:colGrid,gap:4,padding:"6px 12px",background:"#0a0a0a",borderBottom:"1px solid "+BORDER2,fontSize:9,color:MUTED,fontFamily:MONO}}>
-              <span>#</span><span>RACE</span>
-              {players.map((n,i)=><span key={i} style={{textAlign:"right",color:PLAYER_COLORS[i]}}>{shortName(n)}</span>)}
-              <span/>
+        {snapshots.map((entry,idx,arr)=>{
+          const race=RACE_CALENDAR.find(r=>r.r===entry.race);
+          const prev=idx>0?arr[idx-1]:null;
+          return(
+            <div key={entry.race} style={{display:"grid",gridTemplateColumns:colGrid,gap:4,padding:"9px 12px",borderBottom:idx<arr.length-1?"1px solid "+BORDER:"none",background:idx%2===0?CARD:"#0d0d0d",alignItems:"center"}}>
+              <span style={{color:DIM,fontFamily:MONO,fontSize:10}}>R{entry.race}</span>
+              <span style={{color:TEXT,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{race?.name||"Race "+entry.race}</span>
+              {entry.scores.map((s,pi)=>{
+                const delta=prev?s-prev.scores[pi]:null;
+                return(
+                  <span key={pi} style={{textAlign:"right",fontFamily:MONO,fontSize:11,color:PLAYER_COLORS[pi],fontWeight:600}}>
+                    {s}{delta!==null&&delta>0&&<span style={{color:"#4a8a4a",fontSize:9}}> +{delta}</span>}
+                  </span>
+                );
+              })}
             </div>
-            {history.map((entry,idx,arr)=>{
-              const race=RACE_CALENDAR.find(r=>r.r===entry.race);
-              return(
-                <div key={entry.race} style={{display:"grid",gridTemplateColumns:colGrid,gap:4,padding:"9px 12px",borderBottom:idx<arr.length-1?"1px solid "+BORDER:"none",background:idx%2===0?CARD:"#0d0d0d",alignItems:"center"}}>
-                  <span style={{color:DIM,fontFamily:MONO,fontSize:10}}>R{entry.race}</span>
-                  <span style={{color:TEXT,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{race?.name||"Race "+entry.race}</span>
-                  {entry.scores.map((s,pi)=>(
-                    <span key={pi} style={{textAlign:"right",fontFamily:MONO,fontSize:11,color:PLAYER_COLORS[pi],fontWeight:600}}>{s}</span>
-                  ))}
-                  {confirmDelete===entry.race?(
-                    <div style={{display:"flex",gap:4}}>
-                      <button onClick={()=>deleteSnapshot(entry.race)}
-                        style={{background:"#8a0000",border:"none",color:"#fff",padding:"3px 7px",borderRadius:3,cursor:"pointer",fontSize:9,fontFamily:MONO}}>DEL</button>
-                      <button onClick={()=>setConfirmDelete(null)}
-                        style={{background:"none",border:"1px solid "+BORDER2,color:MUTED,padding:"3px 6px",borderRadius:3,cursor:"pointer",fontSize:9,fontFamily:MONO}}>✕</button>
-                    </div>
-                  ):(
-                    <button onClick={()=>setConfirmDelete(entry.race)}
-                      style={{background:"none",border:"1px solid #4a1a1a",color:"#cc4444",padding:"4px 8px",borderRadius:3,cursor:"pointer",fontSize:10,fontFamily:MONO,justifySelf:"end"}}>✕</button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1459,6 +1498,7 @@ export default function App(){
     <div style={{background:BG,minHeight:"100vh",fontFamily:"system-ui,sans-serif",color:TEXT}}>
       <style>{"@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap'); *{box-sizing:border-box;} input,select{color-scheme:dark;} ::-webkit-scrollbar{width:4px;height:4px;} ::-webkit-scrollbar-track{background:#0a0a0a;} ::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:3px;}"}</style>
 
+      {/* Header */}
       <div style={{borderBottom:"1px solid "+BORDER,padding:headerPad,display:"flex",alignItems:"center",justifyContent:"space-between",background:"#050505",position:"sticky",top:0,zIndex:50}}>
         <div>
           <span style={{fontFamily:MONO,fontSize:isMobile?12:13,fontWeight:700,color:ACCENT,letterSpacing:"0.12em"}}>F1 PREDICT</span>
@@ -1471,6 +1511,7 @@ export default function App(){
         </div>
       </div>
 
+      {/* Main content */}
       <div style={{maxWidth:960,margin:"0 auto",padding:isMobile?"14px 12px":"24px",paddingBottom:isMobile?80:24}}>
         {!isMobile&&<TopNav active={tab} onSelect={setTab}/>}
 
@@ -1479,6 +1520,7 @@ export default function App(){
 
         {tab==="Predictions"&&currentPred&&(
           <div>
+            {/* Player selector */}
             <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",marginBottom:10}}>
               <div style={{display:"flex",gap:6,minWidth:"max-content",paddingBottom:2}}>
                 {config.playerNames.map((name,i)=>(
@@ -1490,6 +1532,7 @@ export default function App(){
               </div>
             </div>
 
+            {/* Lock controls — collapsible on mobile */}
             {isMobile?(
               <div style={{marginBottom:12}}>
                 <button onClick={()=>setShowLocks(s=>!s)}
@@ -1546,10 +1589,11 @@ export default function App(){
         )}
 
         {tab==="Standings Chart"&&results&&(
-          <StandingsChart allPreds={allPreds} results={results} players={config.playerNames} onResultsChange={handleResults} isMobile={isMobile}/>
+          <StandingsChart allPreds={allPreds} results={results} players={config.playerNames} isMobile={isMobile}/>
         )}
       </div>
 
+      {/* Bottom nav on mobile */}
       {isMobile&&<BottomNav active={tab} onSelect={setTab}/>}
     </div>
   );
