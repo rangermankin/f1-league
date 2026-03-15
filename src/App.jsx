@@ -1435,8 +1435,42 @@ function TopNav({active,onSelect}){
 }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
+const PASSPHRASE = "f1brain2026";
+
+function PassphraseGate({onUnlock}){
+  const [val,setVal]=useState("");
+  const [err,setErr]=useState(false);
+  function attempt(){
+    if(val.trim().toLowerCase()===PASSPHRASE){onUnlock();}
+    else{setErr(true);setVal("");}
+  }
+  return(
+    <div style={{background:BG,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"system-ui,sans-serif"}}>
+      <div style={{width:"100%",maxWidth:340,padding:32,background:CARD,border:"1px solid "+BORDER2,borderRadius:8}}>
+        <div style={{fontFamily:MONO,fontSize:14,fontWeight:700,color:ACCENT,letterSpacing:"0.12em",marginBottom:4}}>F1 PREDICT</div>
+        <div style={{fontFamily:MONO,fontSize:10,color:MUTED,marginBottom:24}}>2026 SEASON</div>
+        <div style={{fontSize:11,color:MUTED,fontFamily:MONO,marginBottom:8,letterSpacing:"0.06em"}}>PASSPHRASE</div>
+        <input
+          type="password"
+          value={val}
+          onChange={e=>{setVal(e.target.value);setErr(false);}}
+          onKeyDown={e=>e.key==="Enter"&&attempt()}
+          autoFocus
+          style={{background:INPUTBG,border:"1px solid "+(err?"#8a3a3a":BORDER2),color:TEXT,padding:"10px 12px",borderRadius:4,fontSize:14,fontFamily:MONO,outline:"none",width:"100%",boxSizing:"border-box",marginBottom:8}}
+        />
+        {err&&<div style={{fontSize:11,color:"#cc4444",fontFamily:MONO,marginBottom:8}}>Incorrect passphrase.</div>}
+        <button onClick={attempt}
+          style={{width:"100%",background:ACCENT,border:"none",color:"#fff",padding:"12px",borderRadius:4,cursor:"pointer",fontSize:12,fontFamily:MONO,marginTop:4,minHeight:44}}>
+          ENTER
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App(){
   const isMobile=useIsMobile(620);
+  const [unlocked,setUnlocked]=useState(()=>localStorage.getItem("f1brain-auth")===PASSPHRASE);
   const [loading,setLoading]=useState(true);
   const [tab,setTab]=useState("Predictions");
   const [predTab,setPredTab]=useState(0);
@@ -1498,6 +1532,7 @@ export default function App(){
   const currentPred=allPreds[predTab];
   const currentLocked=preLocked[predTab];
 
+if(!unlocked) return <PassphraseGate onUnlock={()=>{localStorage.setItem("f1brain-auth",PASSPHRASE);setUnlocked(true);}}/>;
   if(loading) return <div style={{background:BG,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:MUTED,fontFamily:MONO}}>LOADING...</div>;
 
   const headerPad=isMobile?"10px 14px":"14px 24px";
