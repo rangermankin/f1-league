@@ -1015,9 +1015,17 @@ function StandingsChart({allPreds,results,players,isMobile}){
     return h2h;
   }
 
+// A race has occurred if any driver or constructor scored points in that specific slot
+  function raceOccurred(R){
+    const idx=R-1;
+    return raceData.drivers.some(e=>e.racePts[idx]>0)||
+           raceData.constructors.some(e=>e.racePts[idx]>0);
+  }
+
   const snapshots=[];
   if(raceData){
     for(let R=1;R<=24;R++){
+      if(!raceOccurred(R)) continue;
       const finalDrivers=rankAtRace(raceData.drivers,0,23,R);
       const finalConstructors=rankAtRace(raceData.constructors,0,23,R);
       if(!finalDrivers&&!finalConstructors) continue;
