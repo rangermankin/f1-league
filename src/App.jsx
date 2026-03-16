@@ -599,17 +599,32 @@ function StandingsTable({items,ptsMap,prevPtsMap,onChange,q1Snapshot,showImprove
 }
 
 // ─── RESULTS FORM ─────────────────────────────────────────────────────────────
+function lastRacePrevPts(raceData,type,from,to){
+  if(!raceData?.[type]?.length) return null;
+  const entries=raceData[type];
+  const f=from??0,t=to??23;
+  let lastIdx=-1;
+  for(let i=f;i<=t;i++){if(entries.some(e=>(e.racePts[i]??0)>0))lastIdx=i;}
+  if(lastIdx<0) return null;
+  const prev={};
+  entries.forEach(e=>{prev[e.name]=e.racePts.slice(f,lastIdx).reduce((a,b)=>a+b,0);});
+  return prev;
+}
+
 function ResultsForm({data,onChange,teams,drivers,isMobile}){
   const dn=drivers.map(d=>d.name);
   function up(f,v){onChange({...data,[f]:v});}
   function upQ(q,f,v){onChange({...data,quarterly:{...data.quarterly,[q]:{...data.quarterly?.[q],[f]:v}}});}
+  const rd=data.raceData;
+  const prevFinalCon=lastRacePrevPts(rd,"constructors");
+  const prevFinalDrv=lastRacePrevPts(rd,"drivers");
   return(
     <div style={{color:TEXT,paddingBottom:60}}>
       <StandingsSync data={data} onChange={onChange} teams={teams} drivers={drivers}/>
       <Sec title="Final: Constructors Championship"/>
-      <StandingsTable items={data.constructorsRanking||[...teams]} ptsMap={data.standingsPts?.finalConstructors} prevPtsMap={data.prevStandingsPts?.finalConstructors} onChange={v=>up("constructorsRanking",v)} q1Snapshot={data.q1Snapshot} showImprovement={!!data.q1Snapshot}/>
+      <StandingsTable items={data.constructorsRanking||[...teams]} ptsMap={data.standingsPts?.finalConstructors} prevPtsMap={prevFinalCon} onChange={v=>up("constructorsRanking",v)} q1Snapshot={data.q1Snapshot} showImprovement={!!data.q1Snapshot}/>
       <Sec title="Final: Drivers Championship"/>
-      <StandingsTable items={data.driversRanking||[...dn]} ptsMap={data.standingsPts?.finalDrivers} prevPtsMap={data.prevStandingsPts?.finalDrivers} onChange={v=>up("driversRanking",v)}/>
+      <StandingsTable items={data.driversRanking||[...dn]} ptsMap={data.standingsPts?.finalDrivers} prevPtsMap={prevFinalDrv} onChange={v=>up("driversRanking",v)}/>
       <Sec title="Bonus: Constructors Clinch Date" sub={"Season runs "+SEASON_DATES}/>
       <DateIn value={data.constructorsClinchDate} onChange={v=>up("constructorsClinchDate",v)}/>
       <Sec title="Bonus: Drivers Clinch Date" sub={"Season runs "+SEASON_DATES}/>
@@ -665,10 +680,10 @@ function ResultsForm({data,onChange,teams,drivers,isMobile}){
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
               <div><Lbl>Constructors</Lbl>
-                <StandingsTable items={qConstructors} ptsMap={data.standingsPts?.[q+"Constructors"]} prevPtsMap={data.prevStandingsPts?.[q+"Constructors"]}/>
+                <StandingsTable items={qConstructors} ptsMap={data.standingsPts?.[q+"Constructors"]} prevPtsMap={lastRacePrevPts(rd,"constructors",Q_IDX[q][0],Q_IDX[q][1])}/>
               </div>
               <div><Lbl>Drivers</Lbl>
-                <StandingsTable items={qDrivers} ptsMap={data.standingsPts?.[q+"Drivers"]} prevPtsMap={data.prevStandingsPts?.[q+"Drivers"]}/>
+                <StandingsTable items={qDrivers} ptsMap={data.standingsPts?.[q+"Drivers"]} prevPtsMap={lastRacePrevPts(rd,"drivers",Q_IDX[q][0],Q_IDX[q][1])}/>
               </div>
             </div>
           </div>
@@ -1403,7 +1418,7 @@ function Setup({config,onSave,onReset}){
 }
 
 // ─── BOTTOM NAV (mobile) ──────────────────────────────────────────────────────
-const NAV_TABS = ["Predictions","Leaderboard","Standings Chart","Rules","Setup","Results"];
+const NAV_TABS = ["Leaderboard","Standings Chart","Predictions","Rules","Setup","Results"];
 const NAV_ICONS = {"Predictions":"⚑","Results":"✓","Leaderboard":"▲","Standings Chart":"◈","Rules":"≡","Setup":"⚙"};
 const NAV_SHORT = {"Predictions":"Picks","Results":"Results","Leaderboard":"Scores","Standings Chart":"Chart","Rules":"Rules","Setup":"Setup"};
 
@@ -1472,7 +1487,7 @@ export default function App(){
   const isMobile=useIsMobile(620);
   const [unlocked,setUnlocked]=useState(()=>localStorage.getItem("f1brain-auth")===PASSPHRASE);
   const [loading,setLoading]=useState(true);
-  const [tab,setTab]=useState("Predictions");
+  const [tab,setTab]=useState("Leaderboard");
   const [predTab,setPredTab]=useState(0);
   const [config,setConfig]=useState({playerNames:[...DEFAULT_PLAYER_NAMES],teams:DEFAULT_TEAMS,drivers:DEFAULT_DRIVERS});
   const [allPreds,setAllPreds]=useState(Array(NUM_PLAYERS).fill(null));
