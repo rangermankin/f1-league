@@ -1096,10 +1096,13 @@ function StandingsChart({allPreds,results,players,isMobile}){
   const cW=W-PAD.left-PAD.right;
   const cH=H-PAD.top-PAD.bottom;
   const allScores=snapshots.flatMap(s=>s.scores);
-  const maxScore=Math.max(...allScores,50);
-  const minScore=Math.min(...allScores,0);
-  const yMax=Math.ceil((maxScore+40)/50)*50;
-  const yMin=snapshots.length>0?Math.max(0,Math.floor((minScore-40)/50)*50):0;
+  let yMin=0,yMax=500;
+  if(allScores.length>0){
+    const lo=Math.min(...allScores),hi=Math.max(...allScores);
+    const pad=(hi-lo)/0.9*0.05;
+    yMin=Math.max(0,Math.floor((lo-pad)/50)*50);
+    yMax=Math.ceil((hi+pad)/50)*50;
+  }
   const yRange=yMax-yMin;
   const xPos=r=>PAD.left+((r-1)/23)*cW;
   const yPos=s=>PAD.top+cH-((s-yMin)/yRange)*cH;
