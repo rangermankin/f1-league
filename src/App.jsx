@@ -598,32 +598,18 @@ function StandingsTable({items,ptsMap,prevPtsMap,onChange,q1Snapshot,showImprove
   );
 }
 
-function lastRacePrevPts(raceData,type,from,to){
-  if(!raceData?.[type]?.length) return null;
-  const entries=raceData[type];
-  const f=from??0,t=to??23;
-  let lastIdx=-1;
-  for(let i=f;i<=t;i++){if(entries.some(e=>(e.racePts[i]??0)>0))lastIdx=i;}
-  if(lastIdx<0) return null;
-  const prev={};
-  entries.forEach(e=>{prev[e.name]=e.racePts.slice(f,lastIdx).reduce((a,b)=>a+b,0);});
-  return prev;
-}
 // ─── RESULTS FORM ─────────────────────────────────────────────────────────────
 function ResultsForm({data,onChange,teams,drivers,isMobile}){
   const dn=drivers.map(d=>d.name);
   function up(f,v){onChange({...data,[f]:v});}
   function upQ(q,f,v){onChange({...data,quarterly:{...data.quarterly,[q]:{...data.quarterly?.[q],[f]:v}}});}
-  const rd=data.raceData;
-  const prevFinalCon=lastRacePrevPts(rd,"constructors");
-  const prevFinalDrv=lastRacePrevPts(rd,"drivers");
   return(
     <div style={{color:TEXT,paddingBottom:60}}>
       <StandingsSync data={data} onChange={onChange} teams={teams} drivers={drivers}/>
       <Sec title="Final: Constructors Championship"/>
-      <StandingsTable items={data.constructorsRanking||[...teams]} ptsMap={data.standingsPts?.finalConstructors} prevPtsMap={prevFinalCon} onChange={v=>up("constructorsRanking",v)} q1Snapshot={data.q1Snapshot} showImprovement={!!data.q1Snapshot}/>
+      <StandingsTable items={data.constructorsRanking||[...teams]} ptsMap={data.standingsPts?.finalConstructors} prevPtsMap={data.prevStandingsPts?.finalConstructors} onChange={v=>up("constructorsRanking",v)} q1Snapshot={data.q1Snapshot} showImprovement={!!data.q1Snapshot}/>
       <Sec title="Final: Drivers Championship"/>
-      <StandingsTable items={data.driversRanking||[...dn]} ptsMap={data.standingsPts?.finalDrivers} prevPtsMap={prevFinalDrv} onChange={v=>up("driversRanking",v)}/>
+      <StandingsTable items={data.driversRanking||[...dn]} ptsMap={data.standingsPts?.finalDrivers} prevPtsMap={data.prevStandingsPts?.finalDrivers} onChange={v=>up("driversRanking",v)}/>
       <Sec title="Bonus: Constructors Clinch Date" sub={"Season runs "+SEASON_DATES}/>
       <DateIn value={data.constructorsClinchDate} onChange={v=>up("constructorsClinchDate",v)}/>
       <Sec title="Bonus: Drivers Clinch Date" sub={"Season runs "+SEASON_DATES}/>
@@ -679,10 +665,10 @@ function ResultsForm({data,onChange,teams,drivers,isMobile}){
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
               <div><Lbl>Constructors</Lbl>
-                <StandingsTable items={qConstructors} ptsMap={data.standingsPts?.[q+"Constructors"]} prevPtsMap={lastRacePrevPts(rd,"constructors",Q_IDX[q][0],Q_IDX[q][1])}/>
+                <StandingsTable items={qConstructors} ptsMap={data.standingsPts?.[q+"Constructors"]} prevPtsMap={data.prevStandingsPts?.[q+"Constructors"]}/>
               </div>
               <div><Lbl>Drivers</Lbl>
-                <StandingsTable items={qDrivers} ptsMap={data.standingsPts?.[q+"Drivers"]} prevPtsMap={lastRacePrevPts(rd,"drivers",Q_IDX[q][0],Q_IDX[q][1])}/>
+                <StandingsTable items={qDrivers} ptsMap={data.standingsPts?.[q+"Drivers"]} prevPtsMap={data.prevStandingsPts?.[q+"Drivers"]}/>
               </div>
             </div>
           </div>
@@ -929,13 +915,13 @@ function Leaderboard({allPreds,results,players,teams,drivers,isMobile}){
       {/* Score cards — 2×2 on mobile */}
       <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, 1fr)",gap:isMobile?8:12,marginBottom:20}}>
         {sorted.map(({s,i,rank})=>(
-          <div key={i} style={{background:CARD,border:"1px solid "+(anyResults?PLAYER_COLORS[i]:BORDER),borderRadius:6,padding:isMobile?12:16,textAlign:"center"}}>
-            {anyResults&&<div style={{fontSize:10,color:PLAYER_COLORS[i],fontFamily:MONO,marginBottom:2}}>{"#"+rank}</div>}
+          <div key={i} style={{background:CARD,border:"1px solid "+(rank===1&&anyResults?ACCENT:BORDER),borderRadius:6,padding:isMobile?12:16,textAlign:"center"}}>
+            {anyResults&&<div style={{fontSize:10,color:rank===1?ACCENT:DIM,fontFamily:MONO,marginBottom:2}}>{"#"+rank}</div>}
             <div style={{fontSize:isMobile?10:10,color:MUTED,fontFamily:MONO,marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{shortName(players[i])}</div>
-            <div style={{fontSize:isMobile?28:32,fontWeight:800,color:anyResults?PLAYER_COLORS[i]:DIM,fontFamily:MONO,lineHeight:1}}>{s.total}</div>
+            <div style={{fontSize:isMobile?28:32,fontWeight:800,color:anyResults?ACCENT:DIM,fontFamily:MONO,lineHeight:1}}>{s.total}</div>
             <div style={{fontSize:9,color:MUTED,marginTop:2}}>pts</div>
             <div style={{marginTop:8,height:3,background:BORDER,borderRadius:2}}>
-              <div style={{height:"100%",background:anyResults?PLAYER_COLORS[i]:DIM,borderRadius:2,width:anyResults?((s.total/maxTotal)*100)+"%":"0%",transition:"width 0.6s ease"}}/>
+              <div style={{height:"100%",background:anyResults?ACCENT:DIM,borderRadius:2,width:anyResults?((s.total/maxTotal)*100)+"%":"0%",transition:"width 0.6s ease"}}/>
             </div>
           </div>
         ))}
@@ -946,7 +932,7 @@ function Leaderboard({allPreds,results,players,teams,drivers,isMobile}){
         <div style={{minWidth:isMobile?340:500,border:"1px solid "+BORDER,borderRadius:6,overflow:"hidden"}}>
           <div style={{display:"grid",gridTemplateColumns:colGrid,gap:4,padding:"8px 10px",background:"#0a0a0a",borderBottom:"1px solid "+BORDER2}}>
             <span style={{fontSize:10,color:MUTED,fontFamily:MONO}}>CATEGORY</span>
-            {players.map((name,i)=><span key={i} style={{textAlign:"right",fontSize:10,color:PLAYER_COLORS[i],fontFamily:MONO,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{shortName(name)}</span>)}
+            {players.map((name,i)=><span key={i} style={{textAlign:"right",fontSize:10,color:MUTED,fontFamily:MONO,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{shortName(name)}</span>)}
           </div>
           {Object.entries(catLabel).map(([k,lbl])=>(
             <ScoreRow key={k} label={lbl} vals={scores.map(s=>s.cats[k]??null)}/>
@@ -979,7 +965,7 @@ function Leaderboard({allPreds,results,players,teams,drivers,isMobile}){
           })}
           <div style={{display:"grid",gridTemplateColumns:colGrid,gap:4,padding:"10px 10px",background:"#0a0a0a"}}>
             <span style={{fontSize:12,fontWeight:700,color:TEXT,fontFamily:MONO}}>TOTAL</span>
-            {scores.map((s,i)=><span key={i} style={{textAlign:"right",fontSize:13,fontWeight:800,fontFamily:MONO,color:anyResults?PLAYER_COLORS[i]:DIM}}>{s.total}</span>)}
+            {scores.map((s,i)=><span key={i} style={{textAlign:"right",fontSize:13,fontWeight:800,fontFamily:MONO,color:anyResults?ACCENT:DIM}}>{s.total}</span>)}
           </div>
         </div>
       </div>
@@ -1442,7 +1428,7 @@ function Setup({config,onSave,onReset}){
 }
 
 // ─── BOTTOM NAV (mobile) ──────────────────────────────────────────────────────
-const NAV_TABS = ["Leaderboard","Standings Chart","Predictions","Rules","Setup","Results"];
+const NAV_TABS = ["Predictions","Leaderboard","Standings Chart","Rules","Setup","Results"];
 const NAV_ICONS = {"Predictions":"⚑","Results":"✓","Leaderboard":"▲","Standings Chart":"◈","Rules":"≡","Setup":"⚙"};
 const NAV_SHORT = {"Predictions":"Picks","Results":"Results","Leaderboard":"Scores","Standings Chart":"Chart","Rules":"Rules","Setup":"Setup"};
 
@@ -1511,7 +1497,7 @@ export default function App(){
   const isMobile=useIsMobile(620);
   const [unlocked,setUnlocked]=useState(()=>localStorage.getItem("f1brain-auth")===PASSPHRASE);
   const [loading,setLoading]=useState(true);
-  const [tab,setTab]=useState("Leaderboard");
+  const [tab,setTab]=useState("Predictions");
   const [predTab,setPredTab]=useState(0);
   const [config,setConfig]=useState({playerNames:[...DEFAULT_PLAYER_NAMES],teams:DEFAULT_TEAMS,drivers:DEFAULT_DRIVERS});
   const [allPreds,setAllPreds]=useState(Array(NUM_PLAYERS).fill(null));
