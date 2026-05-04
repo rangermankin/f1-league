@@ -88,6 +88,7 @@ const INPUTBG="#0d0d0d",MONO="'DM Mono','Courier New',monospace";
 const GREEN="#4a8a4a",YELLOW="#a08030",RED="#8a3a3a";
 
 const PLAYER_COLORS=["#e10600","#38bdf8","#f59e0b","#4ade80"];
+const SKIPPED_RACES=new Set([4,5]); // Bahrain & Saudi Arabia skipped (Iran war)
 const RACE_ABBR=["AUS","CHN","JPN","BHR","SAU","MIA","CAN","MON","BCN","AUT","GBR","BEL","HUN","NLD","ITA","SPA","AZE","SGP","USA","MEX","BRA","LVG","QAT","ABD"];
 const Q_IDX={Q1:[0,6],Q2:[7,12],Q3:[13,18],Q4:[19,23]};
 
@@ -603,11 +604,15 @@ function lastRacePrevPts(raceData,type,from,to){
   if(!raceData?.[type]?.length) return null;
   const entries=raceData[type];
   const f=from??0,t=to??23;
-  let lastIdx=-1;
-  for(let i=f;i<=t;i++){if(entries.some(e=>(e.racePts[i]??0)>0))lastIdx=i;}
-  if(lastIdx<0) return null;
+  let lastCalIdx=-1;
+  for(let ci=f;ci<=t;ci++){
+    if(SKIPPED_RACES.has(ci+1)) continue;
+    const di=calToDataIdx(ci+1);
+    if(entries.some(e=>(e.racePts[di]??0)>0)) lastCalIdx=ci;
+  }
+  if(lastCalIdx<0) return null;
   const prev={};
-  entries.forEach(e=>{prev[e.name]=e.racePts.slice(f,lastIdx).reduce((a,b)=>a+b,0);});
+  entries.forEach(e=>{prev[e.name]=sumRacePts(e.racePts,f,lastCalIdx);});
   return prev;
 }
 function ResultsForm({data,onChange,teams,drivers,isMobile}){
@@ -1005,18 +1010,34 @@ function Leaderboard({allPreds,results,players,teams,drivers,isMobile}){
 
 
 // ─── STANDINGS CHART ──────────────────────────────────────────────────────────
+function calToDataIdx(calR){
+  // converts 1-based calendar race number to 0-based compact racePts index
+  let skipped=0;
+  for(const r of SKIPPED_RACES) if(r<calR) skipped++;
+  return calR-1-skipped;
+}
+function sumRacePts(racePts,fromCalIdx,toCalIdxExcl){
+  // fromCalIdx/toCalIdxExcl are 0-based calendar indices
+  let pts=0;
+  for(let ci=fromCalIdx;ci<toCalIdxExcl;ci++){
+    if(SKIPPED_RACES.has(ci+1)) continue;
+    pts+=racePts[calToDataIdx(ci+1)]??0;
+  }
+  return pts;
+}
 function rankAtRace(entries,from,to,R){
+  // from/to are 0-based calendar indices, R is 1-based calendar race number
   if(R<=from) return null;
   const end=Math.min(R,to+1);
   const ranked=entries
-    .map(e=>({name:e.name,pts:e.racePts.slice(from,end).reduce((a,b)=>a+b,0)}))
+    .map(e=>({name:e.name,pts:sumRacePts(e.racePts,from,end)}))
     .sort((a,b)=>b.pts-a.pts);
   return ranked.some(e=>e.pts>0)?ranked:null;
 }
 function h2hAtRace(raceData,R){
   const driverPts={};
   raceData.drivers.forEach(e=>{
-    driverPts[e.name]=e.racePts.slice(0,R).reduce((a,b)=>a+b,0);
+    driverPts[e.name]=sumRacePts(e.racePts,0,R);
   });
   const h2h={};
   for(const[team,[d1,d2]] of Object.entries(H2H_PAIRS)){
@@ -1026,9 +1047,10 @@ function h2hAtRace(raceData,R){
   return h2h;
 }
 function raceOccurred(raceData,R){
-  const idx=R-1;
-  return raceData.drivers.some(e=>e.racePts[idx]>0)||
-         raceData.constructors.some(e=>e.racePts[idx]>0);
+  if(SKIPPED_RACES.has(R)) return false;
+  const idx=calToDataIdx(R);
+  return raceData.drivers.some(e=>(e.racePts[idx]??0)>0)||
+         raceData.constructors.some(e=>(e.racePts[idx]??0)>0);
 }
 function buildResultsFromRaceData(results){
   const raceData=results?.raceData;
