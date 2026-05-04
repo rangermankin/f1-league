@@ -110,8 +110,8 @@ function useIsMobile(bp=620){
 // ─── SCORING ──────────────────────────────────────────────────────────────────
 const scoreConRank = d => d===0?20:d===1?16:d===2?11:d===3?7:d<=6?4:0;
 const scoreDrvRank = d => d===0?10:d<=2?8:d<=5?5:d<=10?2:0;
-const scoreQCon = d => d===0?4:d===1?3:d===2?2:d===3?1:0;
-const scoreQDrv = d => d===0?2:d<=2?1:0;
+const scoreQCon = d => d===0?3:d===1?2:d===2?1:0;
+const scoreQDrv = d => d===0?4:d===1?3:d===2?2:d===3?1:0;
 
 function scoreClinch(p,a){
   if(!p||!a) return null;
@@ -1249,7 +1249,7 @@ function StandingsChart({allPreds,results,players,isMobile}){
                 const delta=prev?s-prev.scores[pi]:null;
                 return(
                   <span key={pi} style={{textAlign:"right",fontFamily:MONO,fontSize:11,color:PLAYER_COLORS[pi],fontWeight:600}}>
-                    {s}{delta!==null&&delta>0&&<span style={{color:"#4a8a4a",fontSize:9}}> +{delta}</span>}
+                    {s}{delta!==null&&delta!==0&&<span style={{color:delta>0?"#4a8a4a":"#8a3a3a",fontSize:9}}> {delta>0?"+":""}{delta}</span>}
                   </span>
                 );
               })}
@@ -1273,7 +1273,7 @@ function Rules({isMobile}){
         <div style={{fontSize:12,color:"#8888cc",lineHeight:1.8}}>
           <p style={{marginTop:0}}>Four players go head to head predicting the 2026 Formula 1 season across three scoring phases.</p>
           <p><span style={{color:TEXT,fontWeight:600}}>Pre-season</span> is your biggest swing — lock in your full constructors and drivers championship rankings before Race 1 and earn up to 440 points based on how close you land.</p>
-          <p><span style={{color:TEXT,fontWeight:600}}>Quarterly standings</span> run across four race blocks throughout the season. With 88 points available per quarter across 24 races, this is where the standings shift race by race.</p>
+          <p><span style={{color:TEXT,fontWeight:600}}>Quarterly standings</span> run across four race blocks throughout the season. With 121 points available per quarter (88 from drivers, 33 from constructors), this is where the standings shift race by race.</p>
           <p><span style={{color:TEXT,fontWeight:600}}>Bonus categories</span> reward getting the details right — championship clinch dates, head-to-head battles within each team, which drivers leave F1, the top win leaders, and which team improves the most. Worth up to 225 points combined.</p>
           <p style={{marginBottom:0}}>All predictions lock before they score and cannot be changed once locked. The player with the most points at the end of Abu Dhabi wins.</p>
         </div>
