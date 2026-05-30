@@ -47,19 +47,7 @@ const DEFAULT_DRIVERS = [
   {name:"Sergio Perez",team:"Cadillac"},{name:"Valtteri Bottas",team:"Cadillac"},
 ];
 
-const H2H_PAIRS = {
-  "Red Bull":      ["Max Verstappen","Isack Hadjar"],
-  "Ferrari":       ["Charles Leclerc","Lewis Hamilton"],
-  "Mercedes":      ["Kimi Antonelli","George Russell"],
-  "McLaren":       ["Lando Norris","Oscar Piastri"],
-  "Aston Martin":  ["Fernando Alonso","Lance Stroll"],
-  "Alpine":        ["Pierre Gasly","Franco Colapinto"],
-  "Williams":      ["Alexander Albon","Carlos Sainz Jr."],
-  "Racing Bulls":  ["Liam Lawson","Arvid Lindblad"],
-  "Haas":          ["Esteban Ocon","Oliver Bearman"],
-  "Audi":          ["Gabriel Bortoleto","Nico Hulkenberg"],
-  "Cadillac":      ["Sergio Perez","Valtteri Bottas"],
-};
+
 
 const RACE_CALENDAR = [
   {r:1,  name:"Australian GP",         date:"8 Mar"},  {r:2,  name:"Chinese GP",            date:"15 Mar"},
@@ -883,7 +871,7 @@ function ComparePanel({allPreds,results,players,teams,drivers,isMobile}){
 
 // ─── LEADERBOARD ──────────────────────────────────────────────────────────────
 function Leaderboard({allPreds,results,players,teams,drivers,isMobile}){
-  const computedResults=buildResultsFromRaceData(results);
+  const computedResults=buildResultsFromRaceData(results,drivers);
   const scores=allPreds.map(p=>calcAllScores(p,computedResults));
   const [expanded,setExpanded]=useState({});
   const [showCompare,setShowCompare]=useState(false);
@@ -1034,13 +1022,18 @@ function rankAtRace(entries,from,to,R){
     .sort((a,b)=>b.pts-a.pts);
   return ranked.some(e=>e.pts>0)?ranked:null;
 }
-function h2hAtRace(raceData,R){
+function h2hAtRace(raceData,R,driversConfig){
   const driverPts={};
   raceData.drivers.forEach(e=>{
     driverPts[e.name]=sumRacePts(e.racePts,0,R);
   });
   const h2h={};
-  for(const[team,[d1,d2]] of Object.entries(H2H_PAIRS)){
+  // Build pairs from config so names always match predictions
+  const teams=[...new Set((driversConfig||[]).map(d=>d.team))];
+  for(const team of teams){
+    const pair=(driversConfig||[]).filter(d=>d.team===team).map(d=>d.name);
+    const [d1,d2]=pair;
+    if(!d1||!d2) continue;
     const p1=driverPts[d1]??0,p2=driverPts[d2]??0;
     h2h[team]=(p1===0&&p2===0)?"":(p1>=p2?d1:d2);
   }
@@ -1052,7 +1045,7 @@ function raceOccurred(raceData,R){
   return raceData.drivers.some(e=>(e.racePts[idx]??0)>0)||
          raceData.constructors.some(e=>(e.racePts[idx]??0)>0);
 }
-function buildResultsFromRaceData(results){
+function buildResultsFromRaceData(results,driversConfig){
   const raceData=results?.raceData;
   if(!raceData) return results;
   let lastR=0;
@@ -1076,11 +1069,11 @@ function buildResultsFromRaceData(results){
     constructorsRanking:finalConstructors?finalConstructors.map(c=>c.name):[],
     driversRanking:finalDrivers?finalDrivers.map(d=>d.name):[],
     quarterly,
-    headToHead:h2hAtRace(raceData,lastR),
+    headToHead:h2hAtRace(raceData,lastR,driversConfig),
   };
 }
 
-function StandingsChart({allPreds,results,players,isMobile}){
+function StandingsChart({allPreds,results,players,drivers,isMobile}){
   const raceData=results?.raceData;
 
   const snapshots=[];
@@ -1106,7 +1099,7 @@ function StandingsChart({allPreds,results,players,isMobile}){
         constructorsRanking:finalConstructors?finalConstructors.map(c=>c.name):[],
         driversRanking:finalDrivers?finalDrivers.map(d=>d.name):[],
         quarterly,
-        headToHead:h2hAtRace(raceData,R),
+        headToHead:h2hAtRace(raceData,R,driversConfig),
       };
       const scores=allPreds.map(p=>calcAllScores(p,partialResults).total);
       snapshots.push({race:R,scores});
@@ -1700,7 +1693,7 @@ if(!unlocked) return <PassphraseGate onUnlock={()=>{localStorage.setItem("f1brai
         )}
 
         {tab==="Standings Chart"&&results&&(
-          <StandingsChart allPreds={allPreds} results={results} players={config.playerNames} isMobile={isMobile}/>
+          <StandingsChart allPreds={allPreds} results={results} players={config.playerNames} drivers={config.drivers} isMobile={isMobile}/>
         )}
       </div>
 
