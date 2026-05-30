@@ -1,27 +1,26 @@
 import { useState, useEffect } from "react";
 
-const SUPABASE_URL = "https://knjvofhoamlvnmqtoiuq.supabase.co";
-const SUPABASE_KEY = "sb_publishable_QhKPtZS7VKyyVRLCflqEPg_ATs7igEY";
-
 const db = {
   async get(key) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/app_data?key=eq.${encodeURIComponent(key)}&select=value`, {
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    const res = await fetch("/api/db", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "get", key })
     });
-    const rows = await res.json();
-    return rows.length ? { value: JSON.stringify(rows[0].value) } : null;
+    return res.ok ? await res.json() : null;
   },
   async set(key, value) {
-    await fetch(`${SUPABASE_URL}/rest/v1/app_data`, {
+    await fetch("/api/db", {
       method: "POST",
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
-      body: JSON.stringify({ key, value: JSON.parse(value), updated_at: new Date().toISOString() })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set", key, value })
     });
   },
   async delete(key) {
-    await fetch(`${SUPABASE_URL}/rest/v1/app_data?key=eq.${encodeURIComponent(key)}`, {
-      method: "DELETE",
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    await fetch("/api/db", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete", key })
     });
   }
 };
