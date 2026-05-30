@@ -1098,7 +1098,7 @@ function StandingsChart({allPreds,results,players,drivers,isMobile}){
         constructorsRanking:finalConstructors?finalConstructors.map(c=>c.name):[],
         driversRanking:finalDrivers?finalDrivers.map(d=>d.name):[],
         quarterly,
-        headToHead:h2hAtRace(raceData,R,driversConfig),
+        headToHead:h2hAtRace(raceData,R,drivers),
       };
       const scores=allPreds.map(p=>calcAllScores(p,partialResults).total);
       snapshots.push({race:R,scores});
